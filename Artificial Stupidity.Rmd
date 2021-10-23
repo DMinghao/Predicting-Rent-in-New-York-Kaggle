@@ -1,0 +1,183 @@
+---
+title: "Artificial Stupidity"
+author: "Minghao Du"
+date: "10/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls())
+
+load_pkgs <-
+  function(packages = c(),
+           basic.packages = c(
+             "package:stats",
+             "package:graphics",
+             "package:grDevices",
+             "package:utils",
+             "package:datasets",
+             "package:methods",
+             "package:base"
+           )) {
+    package.list <-
+      search()[ifelse(unlist(gregexpr("package:", search())) == 1, TRUE, FALSE)]
+    package.list <- setdiff(package.list, basic.packages)
+    if (length(package.list) > 0)
+      for (package in package.list)
+        detach(package, character.only = TRUE)
+    installed_packages <- packages %in% rownames(installed.packages())
+    if (any(installed_packages == FALSE)) {
+      install.packages(packages[!installed_packages], dependencies = T)
+    }
+    invisible(lapply(packages, library, character.only = TRUE))
+  }
+
+
+pkg_list <- c(
+  "plotly", 
+  "tidyverse", 
+  "readxl", 
+  "GGally", 
+  "psych", 
+  "janitor", 
+  "e1071", 
+  "lubridate", 
+  "fastDummies", 
+  "xgboost")
+load_pkgs(pkg_list)
+```
+
+```{r}
+writeSubmit <- function(pred) {
+  submissionFile = data.frame(id = scoringData$id, price = pred)
+  write.csv(submissionFile, 'submission.csv', row.names = F)
+}
+
+rawData <- read_csv('./input/rentlala2021/analysisData.csv')
+
+scoringData <- read_csv('./input/rentlala2021/scoringData.csv')
+
+compare_df_cols(rawData, scoringData) %>%
+  filter(rawData != scoringData |
+           rawData %>% is.na() | scoringData %>% is.na())
+
+rawData %>% mutate(license = license %>% as.logical()) -> rawData
+scoringData %>% mutate(zipcode = zipcode %>% as.numeric()) -> scoringData
+
+compare_df_cols(rawData, scoringData) %>%
+  filter(rawData != scoringData |
+           rawData %>% is.na() | scoringData %>% is.na())
+
+numericCols <- rawData %>% select(is.numeric) %>% colnames()
+boolCols <- rawData %>% select(is.logical) %>% colnames()
+dateCols <- rawData %>% select(is.Date) %>% colnames()
+charCols <- rawData %>% select(is.character) %>% colnames()
+longCharCols <-
+  rawData[charCols] %>% 
+  select(c(name, 
+      summary, 
+      space, 
+      description, 
+      neighborhood_overview, 
+      notes, 
+      transit, 
+      access, 
+      interaction, 
+      house_rules, 
+      host_about, 
+      amenities
+  )) %>% 
+  colnames()
+factorCharCols <- 
+  rawData[charCols] %>% 
+  select(-c(name, 
+      summary, 
+      space, 
+      description, 
+      neighborhood_overview, 
+      notes, 
+      transit, 
+      access, 
+      interaction, 
+      house_rules, 
+      host_about, 
+      amenities
+  )) %>% 
+  select(-c(
+    host_name, 
+    host_verifications, 
+    host_response_time, 
+    calendar_updated, 
+    host_response_rate, 
+    host_acceptance_rate
+  )) %>% 
+  colnames()
+
+# host_name
+# host_verifications
+# host_response_time
+# calendar_updated
+# c(host_response_rate, host_acceptance_rate)
+```
+
+```{r}
+cleanData <- function(inputData) {
+  tempData <- inputData %>% 
+    select(!is.character) %>% 
+    select(-c(id, host_since, first_review, last_review)) %>% 
+    replace(is.na(.),0)
+  tempData %>% return()
+}
+
+cleanData(rawData) -> noCharData 
+
+noCharData %>% summary()
+
+noCharData %>% describe() 
+noCharScoreData %>% describe()
+
+lm(price~., noCharData) -> model 
+
+summary(model)
+
+cleanData(scoringData) -> noCharScoreData
+
+pred <- predict(model, noCharScoreData)
+
+writeSubmit(pred)
+```
+
+
+```{r}
+xgb_train_rmse <- NULL
+xgb_test_rmse <- NULL
+
+hyper_grid <- expand.grid(max_depth = seq(3, 6, 1), eta = seq(.2, .35, .01))  
+
+for (j in 1:nrow(hyper_grid)) {
+  set.seed(123)
+  m_xgb_untuned <- xgb.cv(
+    data = noCharData %>% select(-price) %>% as.matrix(),
+    label = noCharData %>% select(price) %>% as.matrix(),
+    nrounds = 1000,
+    objective = "reg:squarederror",
+    early_stopping_rounds = 5,
+    nfold = 10,
+    max_depth = hyper_grid$max_depth[j],
+    eta = hyper_grid$eta[j]
+  )
+  
+  xgb_train_rmse[j] <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
+  xgb_test_rmse[j] <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
+  
+  cat(j, "\n")
+}    
+
+hyper_grid[which.min(xgb_test_rmse), ]
+
+```
+
