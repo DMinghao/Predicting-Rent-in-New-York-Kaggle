@@ -49,6 +49,7 @@ pkg_list <- c(
   "fastDummies", 
   "xgboost")
 load_pkgs(pkg_list)
+# registerDoParallel(cores = 8)
 ```
 
 ```{r}
@@ -69,15 +70,19 @@ rawData %>% mutate(license = license %>% as.logical()) -> rawData
 scoringData %>% mutate(zipcode = zipcode %>% as.numeric()) -> scoringData
 
 compare_df_cols(rawData, scoringData) %>%
-  filter(rawData != scoringData |
-           rawData %>% is.na() | scoringData %>% is.na())
+  filter(rawData != scoringData | rawData %>% is.na() | scoringData %>% is.na())
 
-numericCols <- rawData %>% select(is.numeric) %>% colnames()
-boolCols <- rawData %>% select(is.logical) %>% colnames()
-dateCols <- rawData %>% select(is.Date) %>% colnames()
-charCols <- rawData %>% select(is.character) %>% colnames()
+pricedScoringData <- scoringData %>% mutate(price = -1)
+
+allData <- rawData %>% bind_rows(pricedScoringData)
+
+
+numericCols <- allData %>% select(is.numeric) %>% colnames()
+boolCols <- allData %>% select(is.logical) %>% colnames()
+dateCols <- allData %>% select(is.Date) %>% colnames()
+charCols <- allData %>% select(is.character) %>% colnames()
 longCharCols <-
-  rawData[charCols] %>% 
+  allData[charCols] %>% 
   select(c(name, 
       summary, 
       space, 
@@ -93,7 +98,7 @@ longCharCols <-
   )) %>% 
   colnames()
 factorCharCols <- 
-  rawData[charCols] %>% 
+  allData[charCols] %>% 
   select(-c(name, 
       summary, 
       space, 
@@ -117,6 +122,19 @@ factorCharCols <-
   )) %>% 
   colnames()
 
+
+
+allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
+allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
+allData <- allData %>%
+  dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
+  clean_names()
+# allData[factorCharCols] <- allData[factorCharCols] %>% 
+#   mutate_all(as.factor)
+
+trainData <- allData %>% filter(price > -1)
+testData <- allData %>% filter(price == -1) %>% select(-price)
+
 # host_name
 # host_verifications
 # host_response_time
@@ -125,44 +143,48 @@ factorCharCols <-
 ```
 
 ```{r}
-cleanData <- function(inputData) {
-  tempData <- inputData %>% 
-    select(!is.character) %>% 
-    select(-c(id, host_since, first_review, last_review)) %>% 
-    replace(is.na(.),0)
-  tempData %>% return()
-}
+# cleanData <- function(inputData) { 
+#   tempData <- inputData
+#   tempData[numericCols] <- inputData[numericCols] %>% 
+#     # select(!is.character) %>% 
+#     # select(-c(id, host_since, first_review, last_review)) %>% 
+#     
+#   tempData %>% return()
+# }
+# 
+# cleanData(rawData) -> noCharData 
 
-cleanData(rawData) -> noCharData 
+# noCharData %>% summary()
+# 
+# noCharData %>% describe() 
+# noCharScoreData %>% describe()
 
-noCharData %>% summary()
+# lm(price~., noCharData) -> model 
 
-noCharData %>% describe() 
-noCharScoreData %>% describe()
+# summary(model)
 
-lm(price~., noCharData) -> model 
-
-summary(model)
-
-cleanData(scoringData) -> noCharScoreData
-
-pred <- predict(model, noCharScoreData)
-
-writeSubmit(pred)
+# cleanData(scoringData) -> noCharScoreData
+# 
+# pred <- predict(model, noCharScoreData)
+# 
+# writeSubmit(pred)
 ```
 
 
 ```{r}
+BoostTrainData <- trainData %>% select(!is.character)
+
+
 xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(3, 6, 1), eta = seq(.2, .35, .01))  
+hyper_grid <- expand.grid(max_depth = seq(5, 100, 10), eta = seq(.1, .35, .01))  
 
-for (j in 1:nrow(hyper_grid)) {
+for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
   m_xgb_untuned <- xgb.cv(
-    data = noCharData %>% select(-price) %>% as.matrix(),
-    label = noCharData %>% select(price) %>% as.matrix(),
+    data = BoostTrainData %>% select(-price) %>% as.matrix(),
+    label = BoostTrainData %>% select(price) %>% as.matrix(),
     nrounds = 1000,
     objective = "reg:squarederror",
     early_stopping_rounds = 5,
@@ -171,13 +193,40 @@ for (j in 1:nrow(hyper_grid)) {
     eta = hyper_grid$eta[j]
   )
   
-  xgb_train_rmse[j] <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
-  xgb_test_rmse[j] <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
+  temp_train_rmse <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
+  temp_test_rmse <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
   
-  cat(j, "\n")
-}    
+  xgb_train_rmse[j] <- temp_train_rmse
+  xgb_test_rmse[j] <- temp_test_rmse
+  
+  # c(temp_train_rmse, temp_test_rmse)
+}
 
-hyper_grid[which.min(xgb_test_rmse), ]
+hyper_grid[which.min(xgb_test_rmse),]
+
+
+model <-
+  xgboost(
+    data = BoostTrainData %>% select(-price) %>% as.matrix(),
+    label = BoostTrainData %>% select(price) %>% as.matrix(),
+    nrounds = 200,
+    objective = "reg:squarederror",
+    early_stopping_rounds = 3,
+    max_depth = 50,
+    eta = .1
+  ) 
+
+summary(model)
+
+pred <- predict(model, testData %>% as.matrix())
+
+writeSubmit(pred)
 
 ```
+
+```{r}
+
+```
+
+
 
