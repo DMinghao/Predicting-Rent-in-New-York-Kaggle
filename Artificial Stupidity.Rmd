@@ -126,11 +126,13 @@ factorCharCols <-
 
 allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
-allData <- allData %>%
-  dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
-  clean_names()
-# allData[factorCharCols] <- allData[factorCharCols] %>% 
-#   mutate_all(as.factor)
+# allData <- allData %>%
+#   dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
+#   clean_names()
+allData[factorCharCols] <- allData[factorCharCols] %>%
+  mutate_all(as.factor)
+
+allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% replace(is.na(.),0)
 
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
