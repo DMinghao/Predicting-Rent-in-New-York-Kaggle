@@ -47,7 +47,9 @@ pkg_list <- c(
   "e1071", 
   "lubridate", 
   "fastDummies", 
-  "xgboost")
+  "xgboost", 
+  "tensorflow", 
+  "keras")
 load_pkgs(pkg_list)
 # registerDoParallel(cores = 8)
 ```
@@ -155,36 +157,8 @@ testData <- allData %>% filter(price == -1) %>% select(-price)
 
 ```
 
-```{r}
-# cleanData <- function(inputData) { 
-#   tempData <- inputData
-#   tempData[numericCols] <- inputData[numericCols] %>% 
-#     # select(!is.character) %>% 
-#     # select(-c(id, host_since, first_review, last_review)) %>% 
-#     
-#   tempData %>% return()
-# }
-# 
-# cleanData(rawData) -> noCharData 
 
-# noCharData %>% summary()
-# 
-# noCharData %>% describe() 
-# noCharScoreData %>% describe()
-
-# lm(price~., noCharData) -> model 
-
-# summary(model)
-
-# cleanData(scoringData) -> noCharScoreData
-# 
-# pred <- predict(model, noCharScoreData)
-# 
-# writeSubmit(pred)
-```
-
-
-```{r}
+```{r eval = FALSE}
 BoostTrainData <- trainData %>% select(!is.character)
 
 
@@ -192,7 +166,7 @@ xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 round <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(2, 10, 2), eta = seq(.1, .35, .02))
+hyper_grid <- expand.grid(max_depth = seq(2, 10, 1), eta = seq(.05, .35, .02))
 
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
@@ -226,27 +200,61 @@ for(j in 1:nrow(hyper_grid)) {
   # c(temp_train_rmse, temp_test_rmse)
 }
 
-hyper_grid[which.min(xgb_test_rmse),]
+
 
 set.seed(123)
 model <-
   xgboost(
     data = BoostTrainData %>% select(-price) %>% as.matrix(),
     label = BoostTrainData %>% select(price) %>% as.matrix(),
-    nrounds = 214,
+    nrounds = round[which.min(xgb_test_rmse)],
     objective = "reg:squarederror",
     early_stopping_rounds = 3,
-    max_depth = 7,
-    eta = .1
+    max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
+    eta = hyper_grid[which.min(xgb_test_rmse),]$eta
   ) 
 
+```
+
+
+
+
+```{r}
+NetTrainData <- trainData %>% select(!is.character)
+
+NetTrainX <- NetTrainData %>% select(-price) %>% as.matrix()
+NetTrainY <- NetTrainData %>% select(price) %>% as.matrix()
+
+model <- keras_model_sequential() %>% 
+   layer_dense(units=64, activation="relu", input_shape= dim(NetTrainX)[2]-1) %>% 
+   layer_dense(units=32, activation = "relu") %>% 
+   layer_dense(units=1, activation="linear")
+ 
+model %>% compile(
+   loss = "rmse",
+   optimizer =  "adam", 
+   metrics = list("root_mean_absolute_error")
+ )
+ 
+model %>% summary()
+```
+
+```{r}
+model %>% fit(NetTrainX, NetTrainY, epochs = 100,verbose = 0)
+ 
+scores <- model %>% evaluate(x, y, verbose = 0)
+print(scores)
+```
+
+
+```{r}
 summary(model)
 
 pred <- predict(model, testData %>% as.matrix())
 
 writeSubmit(pred)
-
 ```
+
 
 ```{r}
 
