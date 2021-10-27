@@ -49,8 +49,13 @@ pkg_list <- c(
   "fastDummies", 
   "xgboost", 
   "tensorflow", 
-  "keras")
+  "keras", 
+  "reticulate")
 load_pkgs(pkg_list)
+
+# conda_create("r-reticulate")
+# conda_install("r-reticulate", "tensorflow")
+# conda_install("r-reticulate", "keras")
 # registerDoParallel(cores = 8)
 ```
 
@@ -145,7 +150,7 @@ allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 allData[factorCharCols] <- allData[factorCharCols] %>%
   mutate_all(as.factor)
 
-allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% replace(is.na(.),0)
+allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% mutate_at(vars(-price), funs(scale)) %>%  replace(is.na(.),0)
 
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
@@ -220,29 +225,42 @@ model <-
 
 
 ```{r}
-NetTrainData <- trainData %>% select(!is.character)
+NetTrainData <- trainData %>% select(!is.character) %>% select(-id)
 
-NetTrainX <- NetTrainData %>% select(-price) %>% as.matrix()
+NetTrainX <- NetTrainData %>% select(-price) %>% as.matrix() 
 NetTrainY <- NetTrainData %>% select(price) %>% as.matrix()
 
-model <- keras_model_sequential() %>% 
-   layer_dense(units=64, activation="relu", input_shape= dim(NetTrainX)[2]-1) %>% 
-   layer_dense(units=32, activation = "relu") %>% 
-   layer_dense(units=1, activation="linear")
- 
+rmse <- function(y, y_hat){
+  sqrt(mean((y - y_hat)^2))
+}
+
+model <- keras_model_sequential() %>%
+  layer_dense(units = 128, activation = "softplus", input_shape = dim(NetTrainX)[2]) %>%
+  layer_dropout(rate = 0.33) %>%
+  layer_dense(units = 256, activation = "softplus") %>%
+  layer_dropout(rate = 0.33) %>%
+  layer_dense(units = 512, activation = "softplus") %>%
+  layer_dropout(rate = 0.33) %>%
+  layer_dense(units = 256, activation = "softplus") %>%
+  layer_dense(units = 128, activation = "softplus") %>%
+  layer_dense(units = 64, activation = "softplus") %>%
+  layer_dense(units = 32, activation = "softplus") %>%
+  layer_dense(units = 1, activation = "softplus")
+
 model %>% compile(
-   loss = "rmse",
-   optimizer =  "adam", 
-   metrics = list("root_mean_absolute_error")
+   loss = "mse",
+   optimizer =  "nadam", 
+   metrics = c("mape","mae")
  )
  
 model %>% summary()
 ```
 
 ```{r}
-model %>% fit(NetTrainX, NetTrainY, epochs = 100,verbose = 0)
+set.seed(123)
+model %>% fit(NetTrainX, NetTrainY, epochs = 100, batch_size = 128, validation_split = 0.2,verbose = 2)
  
-scores <- model %>% evaluate(x, y, verbose = 0)
+scores <- model %>% evaluate(NetTrainX, NetTrainY, verbose = 0)
 print(scores)
 ```
 
@@ -250,7 +268,7 @@ print(scores)
 ```{r}
 summary(model)
 
-pred <- predict(model, testData %>% as.matrix())
+pred <- predict(model, testData %>% select(-id) %>% as.matrix())
 
 writeSubmit(pred)
 ```
