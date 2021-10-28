@@ -150,11 +150,15 @@ allData[rateCols] <- allData[rateCols] %>%
 
 allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
-# allData <- allData %>%
-#   dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
-#   clean_names()
-allData[factorCharCols] <- allData[factorCharCols] %>%
-  mutate_all(as.factor)
+allData <- allData %>% select(-factorCharCols) %>% 
+  add_column(allData[factorCharCols] %>%  
+  replace(is.na(.),"") %>% 
+  dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
+  clean_names() %>% 
+  select_if(~sum(.) != 1))
+  
+# allData[factorCharCols] <- allData[factorCharCols] %>%
+#   mutate_all(as.factor)
 
 allData %>% select(host_name) %>% c() -> names 
 
@@ -170,7 +174,7 @@ testData <- allData %>% filter(price == -1) %>% select(-price)
 # host_verifications
 # host_response_time
 # calendar_updated
-
+# 1878 1803 75
 ```
 
 
@@ -182,7 +186,7 @@ xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 round <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(2, 10, 1), eta = seq(.05, .35, .01))
+hyper_grid <- expand.grid(max_depth = seq(1, 10, 2), eta = seq(.01, .35, .03))
 
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
@@ -229,6 +233,14 @@ model <-
     max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
     eta = hyper_grid[which.min(xgb_test_rmse),]$eta
   ) 
+
+
+
+summary(model)
+
+pred <- predict(model, testData %>% as.matrix())
+
+writeSubmit(pred)
 
 ```
 
