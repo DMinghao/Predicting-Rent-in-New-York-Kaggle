@@ -50,13 +50,19 @@ pkg_list <- c(
   "xgboost", 
   "tensorflow", 
   "keras", 
-  "reticulate")
+  "reticulate", 
+  "gender", 
+  "stringr")
 load_pkgs(pkg_list)
 
+# install_miniconda()
+# install_tensorflow()
+# install_keras()
 # conda_create("r-reticulate")
 # conda_install("r-reticulate", "tensorflow")
-# conda_install("r-reticulate", "keras")
-# registerDoParallel(cores = 8)
+# conda_install("r-reticulate", "keras")      
+
+use_condaenv("r-reticulate")
 ```
 
 ```{r}
@@ -150,12 +156,17 @@ allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 allData[factorCharCols] <- allData[factorCharCols] %>%
   mutate_all(as.factor)
 
+allData %>% select(host_name) %>% c() -> names 
+
+allData <- allData %>% left_join(gender(names$host_name) %>% distinct() %>% select(c(name, proportion_male, proportion_female)), by = c("host_name" = "name"))
+
+allData <- allData %>% bind_cols(allData[longCharCols] %>% mutate_each(funs(str_count)) %>% rename_all(function(x) paste0(x,"_wcount")))
+
 allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% mutate_at(vars(-price), funs(scale)) %>%  replace(is.na(.),0)
 
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
 
-# host_name
 # host_verifications
 # host_response_time
 # calendar_updated
@@ -171,7 +182,7 @@ xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 round <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(2, 10, 1), eta = seq(.05, .35, .02))
+hyper_grid <- expand.grid(max_depth = seq(2, 10, 1), eta = seq(.05, .35, .01))
 
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
