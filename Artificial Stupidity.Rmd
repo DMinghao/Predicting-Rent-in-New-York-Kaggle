@@ -56,10 +56,10 @@ pkg_list <- c(
 load_pkgs(pkg_list)
 
 # install_miniconda()
-# install_tensorflow()
-# install_keras()
+# install_tensorflow(version = "gpu")
+# install_keras(tensorflow = "gpu")
 # conda_create("r-reticulate")
-# conda_install("r-reticulate", "tensorflow")
+# conda_install("r-reticulate", "tensorflow-gpu")
 # conda_install("r-reticulate", "keras")      
 
 use_condaenv("r-reticulate")
@@ -258,16 +258,18 @@ rmse <- function(y, y_hat){
 }
 
 model <- keras_model_sequential() %>%
-  layer_dense(units = 128, activation = "softplus", input_shape = dim(NetTrainX)[2]) %>%
+  layer_dense(units = dim(NetTrainX)[2]*2, activation = "softplus", input_shape = dim(NetTrainX)[2]) %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = 256, activation = "softplus") %>%
+  layer_dense(units = dim(NetTrainX)[2]*4, activation = "softplus") %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = 512, activation = "softplus") %>%
+  layer_dense(units = dim(NetTrainX)[2]*8, activation = "softplus") %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = 256, activation = "softplus") %>%
-  layer_dense(units = 128, activation = "softplus") %>%
-  layer_dense(units = 64, activation = "softplus") %>%
-  layer_dense(units = 32, activation = "softplus") %>%
+  layer_dense(units = dim(NetTrainX)[2]*4, activation = "softplus") %>%
+  layer_dropout(rate = 0.33) %>%
+  layer_dense(units = dim(NetTrainX)[2]*2, activation = "softplus") %>%
+  layer_dropout(rate = 0.33) %>%
+  layer_dense(units = dim(NetTrainX)[2]*0.5, activation = "softplus") %>%
+  layer_dense(units = dim(NetTrainX)[2]*0.25, activation = "softplus") %>%
   layer_dense(units = 1, activation = "softplus")
 
 model %>% compile(
