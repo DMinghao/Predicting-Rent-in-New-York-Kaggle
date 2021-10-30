@@ -256,25 +256,30 @@ rmse <- function(y, y_hat){
   sqrt(mean((y - y_hat)^2))
 }
 
+inputSize <- dim(NetTrainX)[2] 
+offsetSize <- 0.5
+
+scaleSize <- inputSize * offsetSize
+
 model <- keras_model_sequential() %>%
-  layer_dense(units = dim(NetTrainX)[2]*2, activation = "softplus", input_shape = dim(NetTrainX)[2]) %>%
+  layer_dense(units = scaleSize*2, activation = "softplus", input_shape = dim(NetTrainX)[2]) %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = dim(NetTrainX)[2]*4, activation = "softplus") %>%
+  layer_dense(units = scaleSize*4, activation = "softplus") %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = dim(NetTrainX)[2]*8, activation = "softplus") %>%
+  layer_dense(units = scaleSize*8, activation = "softplus") %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = dim(NetTrainX)[2]*4, activation = "softplus") %>%
+  layer_dense(units = scaleSize*4, activation = "softplus") %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = dim(NetTrainX)[2]*2, activation = "softplus") %>%
+  layer_dense(units = scaleSize*2, activation = "softplus") %>%
   layer_dropout(rate = 0.33) %>%
-  layer_dense(units = dim(NetTrainX)[2]*0.5, activation = "softplus") %>%
-  layer_dense(units = dim(NetTrainX)[2]*0.25, activation = "softplus") %>%
+  layer_dense(units = scaleSize*0.5, activation = "softplus") %>%
+  layer_dense(units = scaleSize*0.25, activation = "softplus") %>%
   layer_dense(units = 1, activation = "softplus")
 
 model %>% compile(
    loss = "mse",
    optimizer =  "nadam", 
-   metrics = c("mape","mae")
+   metrics = c("mape","mse")
  )
  
 model %>% summary()
