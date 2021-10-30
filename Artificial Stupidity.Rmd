@@ -56,11 +56,10 @@ pkg_list <- c(
 load_pkgs(pkg_list)
 
 # install_miniconda()
-# install_tensorflow(version = "gpu")
-# install_keras(tensorflow = "gpu")
-# conda_create("r-reticulate")
-# conda_install("r-reticulate", "tensorflow-gpu")
-# conda_install("r-reticulate", "keras")      
+# https://www.tensorflow.org/install/source_windows 
+# https://www.tensorflow.org/install/gpu#hardware_requirements 
+# https://docs.anaconda.com/anaconda/user-guide/tasks/tensorflow 
+# conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
 
 use_condaenv("r-reticulate")
 ```
