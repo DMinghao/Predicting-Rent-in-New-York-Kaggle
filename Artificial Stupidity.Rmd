@@ -52,7 +52,8 @@ pkg_list <- c(
   "keras", 
   "reticulate", 
   "gender", 
-  "stringr")
+  "stringr", 
+  "caret")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -149,15 +150,15 @@ allData[rateCols] <- allData[rateCols] %>%
 
 allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
-allData <- allData %>% select(-factorCharCols) %>% 
-  add_column(allData[factorCharCols] %>%  
-  replace(is.na(.),"") %>% 
-  dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
-  clean_names() %>% 
-  select_if(~sum(.) != 1))
+# allData <- allData %>% select(-factorCharCols) %>% 
+#   add_column(allData[factorCharCols] %>%  
+#   replace(is.na(.),"") %>% 
+#   dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
+#   clean_names() %>% 
+#   select_if(~sum(.) != 1))
   
-# allData[factorCharCols] <- allData[factorCharCols] %>%
-#   mutate_all(as.factor)
+allData[factorCharCols] <- allData[factorCharCols] %>%
+  mutate_all(as.factor)
 
 allData %>% select(host_name) %>% c() -> names 
 
@@ -165,7 +166,17 @@ allData <- allData %>% left_join(gender(names$host_name) %>% distinct() %>% sele
 
 allData <- allData %>% bind_cols(allData[longCharCols] %>% mutate_each(funs(str_count)) %>% rename_all(function(x) paste0(x,"_wcount")))
 
-allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% mutate_at(vars(-price), funs(scale)) %>%  replace(is.na(.),0)
+allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% mutate_at(vars(-price), funs(scale)) %>%  replace(is.na(.),0) 
+
+
+# priceTemp <- allData %>% select(price)
+# 
+# allData <- allData %>% select(-price) %>% preProcess(method = "pca", thresh = 0.9)
+# # pcaModel <- preProcess(x = allData %>% select(-price), method = 'pca', pcaComp = 200)
+# 
+# allData <- predict(pcaModel, newdata = allData %>% select(-price))
+# 
+# allData <- allData %>% add_column(priceTemp) %>% rename(priceTemp = price)
 
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
@@ -257,24 +268,26 @@ rmse <- function(y, y_hat){
 }
 
 inputSize <- dim(NetTrainX)[2] 
-offsetSize <- 0.5
+offsetSize <- 0.45
+dropout <- 0.5
+activate <- "relu"
 
 scaleSize <- inputSize * offsetSize
 
 model <- keras_model_sequential() %>%
-  layer_dense(units = scaleSize*2, activation = "softplus", input_shape = dim(NetTrainX)[2]) %>%
-  layer_dropout(rate = 0.33) %>%
-  layer_dense(units = scaleSize*4, activation = "softplus") %>%
-  layer_dropout(rate = 0.33) %>%
-  layer_dense(units = scaleSize*8, activation = "softplus") %>%
-  layer_dropout(rate = 0.33) %>%
-  layer_dense(units = scaleSize*4, activation = "softplus") %>%
-  layer_dropout(rate = 0.33) %>%
-  layer_dense(units = scaleSize*2, activation = "softplus") %>%
-  layer_dropout(rate = 0.33) %>%
-  layer_dense(units = scaleSize*0.5, activation = "softplus") %>%
-  layer_dense(units = scaleSize*0.25, activation = "softplus") %>%
-  layer_dense(units = 1, activation = "softplus")
+  layer_dense(units = scaleSize*2, activation = activate, input_shape = dim(NetTrainX)[2]) %>%
+  layer_dropout(rate = dropout) %>%
+  layer_dense(units = scaleSize*4, activation = activate) %>%
+  layer_dropout(rate = dropout) %>%
+  layer_dense(units = scaleSize*8, activation = activate) %>%
+  layer_dropout(rate = dropout) %>%
+  layer_dense(units = scaleSize*4, activation = activate) %>%
+  layer_dropout(rate = dropout) %>%
+  layer_dense(units = scaleSize*2, activation = activate) %>%
+  layer_dropout(rate = dropout) %>%
+  layer_dense(units = scaleSize*0.5, activation = activate) %>%
+  layer_dense(units = scaleSize*0.25, activation = activate) %>%
+  layer_dense(units = 1, activation = activate)
 
 model %>% compile(
    loss = "mse",
