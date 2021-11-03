@@ -257,18 +257,6 @@ model <-
     eta = hyper_grid[which.min(xgb_test_rmse),]$eta
   ) 
 
-set.seed(123)
-model <-
-  xgboost(
-    data = BoostTrainData %>% select(-price) %>% as.matrix(),
-    label = BoostTrainData %>% select(price) %>% as.matrix(),
-    nrounds = 600,
-    objective = "reg:squarederror",
-    early_stopping_rounds = 3,
-    max_depth = 7,
-    gamma = 1,
-    eta = 0.04
-  ) 
 
 summary(model)
 
