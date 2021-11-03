@@ -87,7 +87,7 @@ compare_df_cols(rawData, scoringData) %>%
 
 pricedScoringData <- scoringData %>% mutate(price = -1)
 
-allData <- rawData %>% bind_rows(pricedScoringData)
+allData <- rawData %>% bind_rows(pricedScoringData) %>% select(-id)
 
 
 numericCols <- allData %>% select(is.numeric) %>% colnames()
@@ -128,8 +128,8 @@ factorCharCols <-
   select(-c(
     host_name, 
     host_verifications, 
-    host_response_time, 
-    calendar_updated, 
+    host_response_time,
+    calendar_updated,  ## try to add in these to see if it's better
     host_response_rate, 
     host_acceptance_rate
   )) %>% 
@@ -150,11 +150,11 @@ allData[rateCols] <- allData[rateCols] %>%
 
 allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
-# allData <- allData %>% select(-factorCharCols) %>% 
-#   add_column(allData[factorCharCols] %>%  
-#   replace(is.na(.),"") %>% 
+# allData <- allData %>% select(-factorCharCols) %>%
+#   add_column(allData[factorCharCols] %>%
+#   replace(is.na(.),"") %>%
 #   dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
-#   clean_names() %>% 
+#   clean_names() %>%
 #   select_if(~sum(.) != 1))
   
 allData[factorCharCols] <- allData[factorCharCols] %>%
@@ -168,15 +168,26 @@ allData <- allData %>% bind_cols(allData[longCharCols] %>% mutate_each(funs(str_
 
 allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% mutate_at(vars(-price), funs(scale)) %>%  replace(is.na(.),0) 
 
+# allData$host_verifications
 
+remove0var <- function(dat) {
+    out <- lapply(dat, function(x) length(unique(x)))
+    want <- which(!out > 1)
+    name <- unlist(want) %>% names()
+    dat %>% select(-name)
+}
+
+# allData <- allData %>% remove0var() 
+# 
+# 
 # priceTemp <- allData %>% select(price)
 # 
-# allData <- allData %>% select(-price) %>% preProcess(method = "pca", thresh = 0.9)
+# pcaModel <- preProcess(x = allData %>% select(-price) %>% as.matrix(), method = 'pca', thresh = 0.9)
 # # pcaModel <- preProcess(x = allData %>% select(-price), method = 'pca', pcaComp = 200)
 # 
 # allData <- predict(pcaModel, newdata = allData %>% select(-price))
 # 
-# allData <- allData %>% add_column(priceTemp) %>% rename(priceTemp = price)
+# allData$price <- priceTemp
 
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
@@ -196,19 +207,20 @@ xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 round <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(1, 10, 2), eta = seq(.01, .35, .03))
+hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .3, .02), gamma = seq(1, 6, 1))
 
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
   m_xgb_untuned <- xgb.cv(
     data = BoostTrainData %>% select(-price) %>% as.matrix(),
     label = BoostTrainData %>% select(price) %>% as.matrix(),
-    nrounds = 1000,
+    nrounds = 2000,
     objective = "reg:squarederror",
     early_stopping_rounds = 3,
     nfold = 10,
     max_depth = hyper_grid$max_depth[j],
     eta = hyper_grid$eta[j], 
+    gamma = hyper_grid$gamma[j], 
     verbose = F
   )
   
@@ -241,10 +253,22 @@ model <-
     objective = "reg:squarederror",
     early_stopping_rounds = 3,
     max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
+    gamma = hyper_grid[which.min(xgb_test_rmse),]$gamma,
     eta = hyper_grid[which.min(xgb_test_rmse),]$eta
   ) 
 
-
+set.seed(123)
+model <-
+  xgboost(
+    data = BoostTrainData %>% select(-price) %>% as.matrix(),
+    label = BoostTrainData %>% select(price) %>% as.matrix(),
+    nrounds = 600,
+    objective = "reg:squarederror",
+    early_stopping_rounds = 3,
+    max_depth = 7,
+    gamma = 1,
+    eta = 0.04
+  ) 
 
 summary(model)
 
@@ -258,7 +282,7 @@ writeSubmit(pred)
 
 
 ```{r}
-NetTrainData <- trainData %>% select(!is.character) %>% select(-id)
+NetTrainData <- trainData %>% select(!is.character)
 
 NetTrainX <- NetTrainData %>% select(-price) %>% as.matrix() 
 NetTrainY <- NetTrainData %>% select(price) %>% as.matrix()
@@ -310,7 +334,7 @@ print(scores)
 ```{r}
 summary(model)
 
-pred <- predict(model, testData %>% select(-id) %>% as.matrix())
+pred <- predict(model, testData %>% as.matrix())
 
 writeSubmit(pred)
 ```
