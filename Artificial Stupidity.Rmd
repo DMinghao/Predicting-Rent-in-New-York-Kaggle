@@ -214,7 +214,30 @@ for(w in 1:length(vari_list[[1]])) {
 allData <- allData %>% select(-host_verifications)
 
 
+allData <- allData %>%
+  mutate(host_response_time = gsub("within a ", "", host_response_time)) %>%
+  mutate(host_response_time = gsub("within an ", "", host_response_time)) %>%
+  mutate(host_response_time = gsub("hour", "1", host_response_time)) %>%
+  mutate(host_response_time = gsub("few hours", "12", host_response_time)) %>%
+  mutate(host_response_time = gsub("day", "24", host_response_time)) %>%
+  mutate(host_response_time = gsub("a few days or more", "48", host_response_time)) %>%
+  mutate(host_response_time = replace_na(host_response_time, "N/A")) %>% 
+  mutate(host_response_time = gsub("N/A", "96", host_response_time)) %>%
+  mutate(host_response_time = as.factor(host_response_time))
 
+allData <- allData %>% 
+  mutate(calendar_updated = gsub(" ago", "", calendar_updated)) %>% 
+  mutate(calendar_updated = gsub("today", "0", calendar_updated)) %>% 
+  mutate(calendar_updated = gsub("yesterday", "1", calendar_updated)) %>% 
+  mutate(calendar_updated = case_when(
+    grepl("days", calendar_updated) ~ as.numeric(gsub("([0-9]+).*$", "\\1", calendar_updated)) %>% as.character(), 
+    grepl("weeks", calendar_updated) ~ as.character(as.numeric(gsub("([0-9]+).*$", "\\1", calendar_updated))*7),
+    grepl("months", calendar_updated) ~ as.character(as.numeric(gsub("([0-9]+).*$", "\\1", calendar_updated))*30), 
+    grepl("week", calendar_updated) ~ "7",
+    grepl("never", calendar_updated) ~ "3000",
+    TRUE ~ as.character(calendar_updated)
+  )) %>% 
+  mutate(calendar_updated = as.numeric(calendar_updated)) 
 
 prep_fun <- function(x) {
     x %>%
@@ -228,9 +251,6 @@ prep_fun <- function(x) {
   }
 
 
-# host_verifications
-# host_response_time
-# calendar_updated
 # longCharCols
 ```
 
@@ -285,7 +305,7 @@ xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 round <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .36, .02), gamma = seq(0, 6, 1))
+hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .36, .01), gamma = seq(0, 6, 1))
 
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
