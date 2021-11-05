@@ -277,9 +277,9 @@ prep_fun <- function(x) {
   }
 
 
-allData[longCharCols] <- allData[longCharCols] %>% 
-  mutate_all(funs(prep_fun(.))) %>% 
-  replace(is.na(.), "")
+# allData[longCharCols] <- allData[longCharCols] %>% 
+#   mutate_all(funs(prep_fun(.))) %>% 
+#   replace(is.na(.), "")
 
 ## TODO: generate new numeric cols for long text cols 
 ## TODO: transform long text cols to numeric value 
