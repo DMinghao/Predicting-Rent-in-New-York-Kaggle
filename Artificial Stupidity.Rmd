@@ -351,7 +351,7 @@ obj.fun <- makeSingleObjectiveFunction(
       showsd = TRUE,
       early_stopping_rounds = 5, 
       verbose = 1,
-      print_every_n = 100)
+      print_every_n = 500)
     cv$evaluation_log %>% pull(4) %>% min 
   },
   par.set = makeParamSet(
@@ -396,9 +396,9 @@ do_bayes <- function(n_design = NULL, opt_steps = NULL, of = obj.fun, seed = see
   return(list(run = run, plot = opt_plot))
 }
 
-des <- generateDesign(n=15,
-                      par.set = getParamSet(obj.fun),
-                      fun = lhs::randomLHS)
+# des <- generateDesign(n=15,
+#                       par.set = getParamSet(obj.fun),
+#                       fun = lhs::randomLHS)
  
 # kable(des, format = "html", digits = 4) %>% 
 #   kable_styling(font_size = 10) %>%
