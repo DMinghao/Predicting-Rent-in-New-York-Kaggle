@@ -53,7 +53,9 @@ pkg_list <- c(
   "reticulate", 
   "gender", 
   "stringr", 
-  "caret")
+  "caret", 
+  "textstem", 
+  "tm")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -84,6 +86,11 @@ scoringData %>% mutate(zipcode = zipcode %>% as.numeric()) -> scoringData
 
 compare_df_cols(rawData, scoringData) %>%
   filter(rawData != scoringData | rawData %>% is.na() | scoringData %>% is.na())
+```
+
+
+
+```{r}
 
 pricedScoringData <- scoringData %>% mutate(price = -1)
 
@@ -129,7 +136,7 @@ factorCharCols <-
     host_name, 
     host_verifications, 
     host_response_time,
-    calendar_updated,  ## try to add in these to see if it's better
+    calendar_updated, 
     host_response_rate, 
     host_acceptance_rate
   )) %>% 
@@ -138,6 +145,12 @@ factorCharCols <-
 rateCols <- allData %>% 
   select(c(host_response_rate, host_acceptance_rate)) %>% 
   colnames()
+
+```
+
+
+
+```{r}
 
 allData[rateCols] <- allData[rateCols] %>% 
   mutate(host_response_rate = gsub("N/A","0%", host_response_rate)) %>% 
@@ -150,6 +163,8 @@ allData[rateCols] <- allData[rateCols] %>%
 
 allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
+
+
 # allData <- allData %>% select(-factorCharCols) %>%
 #   add_column(allData[factorCharCols] %>%
 #   replace(is.na(.),"") %>%
@@ -158,15 +173,81 @@ allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 #   select_if(~sum(.) != 1))
   
 allData[factorCharCols] <- allData[factorCharCols] %>%
-  mutate_all(as.factor)
+  mutate_all(as.factor) 
+
+allData <- allData %>% select(-c(country_code, country))
+
+
 
 allData %>% select(host_name) %>% c() -> names 
 
-allData <- allData %>% left_join(gender(names$host_name) %>% distinct() %>% select(c(name, proportion_male, proportion_female)), by = c("host_name" = "name"))
+allData <- allData %>%
+  left_join(gender(names$host_name) %>%
+              distinct() %>%
+              select(c(name, proportion_male, proportion_female)),
+            by = c("host_name" = "name"))
 
-allData <- allData %>% bind_cols(allData[longCharCols] %>% mutate_each(funs(str_count)) %>% rename_all(function(x) paste0(x,"_wcount")))
 
-allData <- allData %>% select(is.numeric | is.factor) %>% mutate_all(as.numeric) %>% mutate_at(vars(-price), funs(scale)) %>%  replace(is.na(.),0) 
+
+allData <- allData %>%
+  bind_cols(allData[longCharCols] %>%
+              mutate_each(funs(str_count)) %>%
+              rename_all(function(x) paste0(x, "_wcount")))
+
+
+
+
+allData <- allData %>% 
+  mutate(host_verifications = gsub("\\[|\\]|\\'|\\,", "", host_verifications)) %>% 
+  mutate(vari_count = strsplit(host_verifications, " ") %>% lengths())
+
+vari_list <- allData %>% 
+  select(host_verifications) %>% 
+  lapply(function(x) unique(trimws(unlist(strsplit(x, " ")))))
+
+for(w in 1:length(vari_list[[1]])) {
+  # print(vari_list[[1]][w])
+  new <- grepl(pattern = vari_list[[1]][w], x = allData$host_verifications, fixed = TRUE)
+  allData[paste(vari_list[[1]][w], "_vari")] <- new
+}
+
+allData <- allData %>% select(-host_verifications)
+
+
+
+
+prep_fun <- function(x) {
+    x %>%
+      str_to_lower() %>%
+      str_replace_all("[^[:alnum:]]", " ") %>%
+      {gsub(patter = "\\d", replace = " ", .)} %>%
+      removeWords(stopwords()) %>%
+      {gsub(patter = "\\b[A-z]\\b{1}", replace = " ", .)} %>%
+      str_replace_all("\\s+", " ") %>%
+      lemmatize_strings()
+  }
+
+
+# host_verifications
+# host_response_time
+# calendar_updated
+# longCharCols
+```
+
+
+
+```{r}
+
+allData <- allData %>% 
+  select(is.numeric) %>% 
+  mutate_at(vars(-price), funs(scale)) %>%  
+  replace(is.na(.),0) 
+
+allData <- allData %>% 
+  select(is.factor) %>% 
+  mutate_all(as.character) %>% 
+  mutate_all(as.numeric) %>% 
+  replace(is.na(.),0) 
 
 # allData$host_verifications
 
@@ -192,11 +273,8 @@ remove0var <- function(dat) {
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
 
-# host_verifications
-# host_response_time
-# calendar_updated
-# 1878 1803 75
 ```
+
 
 
 ```{r eval = FALSE}
@@ -207,7 +285,7 @@ xgb_train_rmse <- NULL
 xgb_test_rmse <- NULL
 round <- NULL
 
-hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .3, .02), gamma = seq(1, 6, 1))
+hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .36, .02), gamma = seq(0, 6, 1))
 
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
