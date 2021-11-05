@@ -250,6 +250,11 @@ prep_fun <- function(x) {
       lemmatize_strings()
   }
 
+allData[dateCols] <- allData %>% 
+  select(dateCols) %>% 
+  mutate_all(funs(Sys.Date() - .)) %>% 
+  mutate_all(as.numeric)
+
 
 # longCharCols
 ```
@@ -258,13 +263,14 @@ prep_fun <- function(x) {
 
 ```{r}
 
-allData <- allData %>% 
-  select(is.numeric) %>% 
+numCols <- allData %>% select(is.numeric) %>% colnames()
+facCols <- allData %>% select(is.factor) %>% colnames()
+
+allData[numCols] <- allData[numCols] %>% 
   mutate_at(vars(-price), funs(scale)) %>%  
   replace(is.na(.),0) 
 
-allData <- allData %>% 
-  select(is.factor) %>% 
+allData[facCols] <- allData[facCols] %>% 
   mutate_all(as.character) %>% 
   mutate_all(as.numeric) %>% 
   replace(is.na(.),0) 
@@ -297,8 +303,9 @@ testData <- allData %>% filter(price == -1) %>% select(-price)
 
 
 
-```{r eval = FALSE}
+```{r}
 BoostTrainData <- trainData %>% select(!is.character)
+BoostTrainData <- xgb.DMatrix(as.matrix(BoostTrainData %>% select(-price)), label= as.matrix(BoostTrainData %>% select(price)))
 
 
 xgb_train_rmse <- NULL
@@ -310,8 +317,7 @@ hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .36, .01), ga
 for(j in 1:nrow(hyper_grid)) {
   set.seed(123)
   m_xgb_untuned <- xgb.cv(
-    data = BoostTrainData %>% select(-price) %>% as.matrix(),
-    label = BoostTrainData %>% select(price) %>% as.matrix(),
+    data = BoostTrainData,
     nrounds = 2000,
     objective = "reg:squarederror",
     early_stopping_rounds = 3,
