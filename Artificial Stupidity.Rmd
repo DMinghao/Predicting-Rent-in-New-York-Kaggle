@@ -55,7 +55,12 @@ pkg_list <- c(
   "stringr", 
   "caret", 
   "textstem", 
-  "tm")
+  "tm", 
+  "tidytext", 
+  "lhs", 
+  "smoof", 
+  "mlrMBO", 
+  "DiceKriging")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -63,7 +68,7 @@ load_pkgs(pkg_list)
 # https://www.tensorflow.org/install/gpu#hardware_requirements 
 # https://docs.anaconda.com/anaconda/user-guide/tasks/tensorflow 
 # conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
-
+seed <- 123
 use_condaenv("r-reticulate")
 ```
 
@@ -113,8 +118,7 @@ longCharCols <-
       access, 
       interaction, 
       house_rules, 
-      host_about, 
-      amenities
+      host_about
   )) %>% 
   colnames()
 factorCharCols <- 
@@ -129,8 +133,7 @@ factorCharCols <-
       access, 
       interaction, 
       house_rules, 
-      host_about, 
-      amenities
+      host_about
   )) %>% 
   select(-c(
     host_name, 
@@ -138,7 +141,8 @@ factorCharCols <-
     host_response_time,
     calendar_updated, 
     host_response_rate, 
-    host_acceptance_rate
+    host_acceptance_rate, 
+    amenities
   )) %>% 
   colnames()
 
@@ -173,7 +177,8 @@ allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 #   select_if(~sum(.) != 1))
   
 allData[factorCharCols] <- allData[factorCharCols] %>%
-  mutate_all(as.factor) 
+  replace(is.na(.), "N/A") %>% 
+  mutate_all(as.factor)
 
 allData <- allData %>% select(-c(country_code, country))
 
@@ -213,6 +218,20 @@ for(w in 1:length(vari_list[[1]])) {
 
 allData <- allData %>% select(-host_verifications)
 
+allData <- allData %>% 
+  mutate(amenities_count = strsplit(amenities, ",") %>% lengths()) 
+
+amen_list <- allData %>% 
+  select(amenities) %>% 
+  mutate(amenities = gsub("\\.", "", amenities)) %>% 
+  lapply(function(x) unique(trimws(unlist(strsplit(x, ",")))))
+
+for(w in 1:length(amen_list[[1]])) {
+  new <- grepl(pattern = amen_list[[1]][w], x = allData$amenities, fixed = TRUE)
+  allData[paste(amen_list[[1]][w], "_amen")] <- new
+}
+
+allData <- allData %>% select(-amenities) %>% clean_names()
 
 allData <- allData %>%
   mutate(host_response_time = gsub("within a ", "", host_response_time)) %>%
@@ -223,7 +242,7 @@ allData <- allData %>%
   mutate(host_response_time = gsub("a few days or more", "48", host_response_time)) %>%
   mutate(host_response_time = replace_na(host_response_time, "N/A")) %>% 
   mutate(host_response_time = gsub("N/A", "96", host_response_time)) %>%
-  mutate(host_response_time = as.factor(host_response_time))
+  mutate(host_response_time = as.numeric(host_response_time))
 
 allData <- allData %>% 
   mutate(calendar_updated = gsub(" ago", "", calendar_updated)) %>% 
@@ -237,7 +256,13 @@ allData <- allData %>%
     grepl("never", calendar_updated) ~ "3000",
     TRUE ~ as.character(calendar_updated)
   )) %>% 
-  mutate(calendar_updated = as.numeric(calendar_updated)) 
+  mutate(calendar_updated = as.numeric(calendar_updated))
+
+
+allData[dateCols] <- allData %>% 
+  select(dateCols) %>% 
+  mutate_all(funs(Sys.Date() - .)) %>% 
+  mutate_all(as.numeric)
 
 prep_fun <- function(x) {
     x %>%
@@ -250,13 +275,13 @@ prep_fun <- function(x) {
       lemmatize_strings()
   }
 
-allData[dateCols] <- allData %>% 
-  select(dateCols) %>% 
-  mutate_all(funs(Sys.Date() - .)) %>% 
-  mutate_all(as.numeric)
 
+allData[longCharCols] <- allData[longCharCols] %>% 
+  mutate_all(funs(prep_fun(.))) %>% 
+  replace(is.na(.), "")
 
-# longCharCols
+## TODO: generate new numeric cols for long text cols 
+## TODO: transform long text cols to numeric value 
 ```
 
 
@@ -271,11 +296,8 @@ allData[numCols] <- allData[numCols] %>%
   replace(is.na(.),0) 
 
 allData[facCols] <- allData[facCols] %>% 
-  mutate_all(as.character) %>% 
-  mutate_all(as.numeric) %>% 
-  replace(is.na(.),0) 
+  mutate_all(funs(as.numeric(.)-1)) 
 
-# allData$host_verifications
 
 remove0var <- function(dat) {
     out <- lapply(dat, function(x) length(unique(x)))
@@ -284,7 +306,7 @@ remove0var <- function(dat) {
     dat %>% select(-name)
 }
 
-# allData <- allData %>% remove0var() 
+allData <- allData %>% remove0var() 
 # 
 # 
 # priceTemp <- allData %>% select(price)
@@ -307,59 +329,168 @@ testData <- allData %>% filter(price == -1) %>% select(-price)
 BoostTrainData <- trainData %>% select(!is.character)
 BoostTrainData <- xgb.DMatrix(as.matrix(BoostTrainData %>% select(-price)), label= as.matrix(BoostTrainData %>% select(price)))
 
+obj.fun <- makeSingleObjectiveFunction(
+  name = "xgb_cv_bayes",
+  fn =   function(x){
+    set.seed(seed)
+    cv <- xgb.cv(params = list(
+      booster          = "gbtree",
+      eta              = x["eta"],
+      max_depth        = x["max_depth"],
+      min_child_weight = x["min_child_weight"],
+      gamma            = x["gamma"],
+      subsample        = x["subsample"],
+      colsample_bytree = x["colsample_bytree"],
+      max_delta_step   = x["max_delta_step"],
+      objective        = 'reg:squarederror'),
+      data = BoostTrainData, 
+      nround = 7000,
+      nthread = 12, 
+      nfold =  10,
+      prediction = FALSE,
+      showsd = TRUE,
+      early_stopping_rounds = 5, 
+      verbose = 1,
+      print_every_n = 100)
+    cv$evaluation_log %>% pull(4) %>% min 
+  },
+  par.set = makeParamSet(
+    makeNumericParam("eta",                    lower = 0.005, upper = 0.36),
+    makeNumericParam("gamma",                  lower = 1,     upper = 6),
+    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
+    makeIntegerParam("min_child_weight",       lower= 1,    upper = 2000),
+    makeNumericParam("subsample",              lower = 0.01,  upper = 1),
+    makeNumericParam("colsample_bytree",       lower = 0.01,  upper = 1),
+    makeNumericParam("max_delta_step",         lower = 0,     upper = 10)
+  ),
+  minimize = TRUE 
+)
 
-xgb_train_rmse <- NULL
-xgb_test_rmse <- NULL
-round <- NULL
-
-hyper_grid <- expand.grid(max_depth = seq(3, 8, 1), eta = seq(.02, .36, .01), gamma = seq(0, 6, 1))
-
-for(j in 1:nrow(hyper_grid)) {
-  set.seed(123)
-  m_xgb_untuned <- xgb.cv(
-    data = BoostTrainData,
-    nrounds = 2000,
-    objective = "reg:squarederror",
-    early_stopping_rounds = 3,
-    nfold = 10,
-    max_depth = hyper_grid$max_depth[j],
-    eta = hyper_grid$eta[j], 
-    gamma = hyper_grid$gamma[j], 
-    verbose = F
-  )
+do_bayes <- function(n_design = NULL, opt_steps = NULL, of = obj.fun, seed = seed) {
+  set.seed(seed)
   
-  temp_train_rmse <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
-  temp_test_rmse <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
-  
-  cat(j,"\n")
-  cat(hyper_grid$max_depth[j],"\t")
-  cat(hyper_grid$eta[j],"\n")
-  cat(m_xgb_untuned$best_iteration,"\t")
-  cat(temp_train_rmse,"\t")
-  cat(temp_test_rmse,"\n")
-  
-  xgb_train_rmse[j] <- temp_train_rmse
-  xgb_test_rmse[j] <- temp_test_rmse 
-  round[j] <- m_xgb_untuned$best_iteration
-  
-  
-  # c(temp_train_rmse, temp_test_rmse)
+  des <- generateDesign(n=n_design,
+                        par.set = getParamSet(of),
+                        fun = lhs::randomLHS)
+ 
+  control <- makeMBOControl() %>%
+    setMBOControlTermination(., iters = opt_steps)
+ 
+  run <- mbo(fun = of,
+             design = des,
+             learner = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE)),
+             control = control, 
+             show.info = TRUE)
+ 
+  opt_plot <- run$opt.path$env$path %>%
+    mutate(Round = row_number()) %>%
+    mutate(type = case_when(Round <= n_design ~ "Design",
+                            TRUE ~ "mlrMBO optimization")) %>%
+    ggplot(aes(x= Round, y= y, color= type)) + 
+    geom_point() +
+    labs(title = "mlrMBO optimization") +
+    ylab("-log(likelihood)")
+ 
+  print(run$x)
+ 
+  return(list(run = run, plot = opt_plot))
 }
 
+des <- generateDesign(n=15,
+                      par.set = getParamSet(obj.fun),
+                      fun = lhs::randomLHS)
+ 
+# kable(des, format = "html", digits = 4) %>% 
+#   kable_styling(font_size = 10) %>%
+#   kable_material_dark()
 
+runs <- do_bayes(n_design = 15, of = obj.fun, opt_steps = 10, seed = 42)
 
-set.seed(123)
+plot(runs$run)
+
+best.params <- runs$run$x
+
+optimal.cv <- xgb.cv(
+      params = best.params,
+      data = BoostTrainData, 
+      nround = 7000,
+      nthread = 12, 
+      nfold =  10,
+      prediction = FALSE,
+      showsd = TRUE,
+      early_stopping_rounds = 5, 
+      verbose = 1,
+      print_every_n = 100)
+
+set.seed(seed)
 model <-
   xgboost(
-    data = BoostTrainData %>% select(-price) %>% as.matrix(),
-    label = BoostTrainData %>% select(price) %>% as.matrix(),
-    nrounds = round[which.min(xgb_test_rmse)],
-    objective = "reg:squarederror",
-    early_stopping_rounds = 3,
-    max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
-    gamma = hyper_grid[which.min(xgb_test_rmse),]$gamma,
-    eta = hyper_grid[which.min(xgb_test_rmse),]$eta
+    params = best.params,
+    data = BoostTrainData, 
+    nrounds = optimal.cv$best_ntreelimit,
+    objective = "reg:squarederror"
   ) 
+
+
+
+
+
+
+
+
+
+# xgb_train_rmse <- NULL
+# xgb_test_rmse <- NULL
+# round <- NULL
+# 
+# hyper_grid <- expand.grid(max_depth = seq(3, 10, 1), eta = seq(.02, .36, .02), gamma = seq(0, 6, 1))
+# 
+# for(j in 1:nrow(hyper_grid)) {
+#   set.seed(seed)
+#   m_xgb_untuned <- xgb.cv(
+#     data = BoostTrainData,
+#     nrounds = 2000,
+#     objective = "reg:squarederror",
+#     early_stopping_rounds = 3,
+#     nfold = 10,
+#     max_depth = hyper_grid$max_depth[j],
+#     eta = hyper_grid$eta[j], 
+#     gamma = hyper_grid$gamma[j], 
+#     verbose = F
+#   )
+#   
+#   temp_train_rmse <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
+#   temp_test_rmse <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
+#   
+#   cat(j,"\n")
+#   cat(hyper_grid$max_depth[j],"\t")
+#   cat(hyper_grid$eta[j],"\n")
+#   cat(m_xgb_untuned$best_iteration,"\t")
+#   cat(temp_train_rmse,"\t")
+#   cat(temp_test_rmse,"\n")
+#   
+#   xgb_train_rmse[j] <- temp_train_rmse
+#   xgb_test_rmse[j] <- temp_test_rmse 
+#   round[j] <- m_xgb_untuned$best_iteration
+#   
+#   
+#   # c(temp_train_rmse, temp_test_rmse)
+# }
+# 
+# 
+# 
+# set.seed(seed)
+# model <-
+#   xgboost(
+#     data = BoostTrainData %>% select(-price) %>% as.matrix(),
+#     label = BoostTrainData %>% select(price) %>% as.matrix(),
+#     nrounds = round[which.min(xgb_test_rmse)],
+#     objective = "reg:squarederror",
+#     early_stopping_rounds = 3,
+#     max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
+#     gamma = hyper_grid[which.min(xgb_test_rmse),]$gamma,
+#     eta = hyper_grid[which.min(xgb_test_rmse),]$eta
+#   ) 
 
 
 summary(model)
@@ -415,7 +546,7 @@ model %>% summary()
 ```
 
 ```{r}
-set.seed(123)
+set.seed(seed)
 model %>% fit(NetTrainX, NetTrainY, epochs = 100, batch_size = 128, validation_split = 0.2,verbose = 2)
  
 scores <- model %>% evaluate(NetTrainX, NetTrainY, verbose = 0)
