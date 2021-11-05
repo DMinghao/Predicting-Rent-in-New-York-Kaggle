@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 rm(list = ls())
+gc()
 
 load_pkgs <-
   function(packages = c(),
@@ -404,7 +405,7 @@ do_bayes <- function(n_design = NULL, opt_steps = NULL, of = obj.fun, seed = see
 #   kable_styling(font_size = 10) %>%
 #   kable_material_dark()
 
-runs <- do_bayes(n_design = 15, of = obj.fun, opt_steps = 10, seed = 42)
+runs <- do_bayes(n_design = 15, of = obj.fun, opt_steps = 10, seed = seed)
 
 plot(runs$run)
 
