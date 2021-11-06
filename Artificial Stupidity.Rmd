@@ -327,112 +327,136 @@ testData <- allData %>% filter(price == -1) %>% select(-price)
 
 
 ```{r}
-BoostTrainData <- trainData %>% select(!is.character)
-BoostTrainData <- xgb.DMatrix(as.matrix(BoostTrainData %>% select(-price)), label= as.matrix(BoostTrainData %>% select(price)))
+BoostTrainData <- trainData %>% select(!is.character) 
+
+BoostTrainData <- xgb.DMatrix(
+  model.matrix(price ~ ., data = BoostTrainData),
+  label = as.matrix(BoostTrainData %>% select(price)),
+  base_margin = log(BoostTrainData$price)
+)
 
 obj.fun <- makeSingleObjectiveFunction(
   name = "xgb_cv_bayes",
-  fn =   function(x){
+  fn =   function(x) {
     set.seed(seed)
-    cv <- xgb.cv(params = list(
-      booster          = "gbtree",
-      eta              = x["eta"],
-      max_depth        = x["max_depth"],
-      min_child_weight = x["min_child_weight"],
-      gamma            = x["gamma"],
-      subsample        = x["subsample"],
-      colsample_bytree = x["colsample_bytree"],
-      max_delta_step   = x["max_delta_step"],
-      objective        = 'reg:squarederror'),
-      data = BoostTrainData, 
+    cv <- xgb.cv(
+      params = list(
+        # booster          = "gbtree",
+        eta              = x["eta"],
+        max_depth        = x["max_depth"],
+        min_child_weight = x["min_child_weight"],
+        gamma            = x["gamma"],
+        subsample        = x["subsample"],
+        colsample_bytree = x["colsample_bytree"],
+        max_delta_step   = x["max_delta_step"],
+        objective        = 'reg:squarederror'
+      ),
+      data = BoostTrainData,
       nround = 7000,
-      nthread = 12, 
+      nthread = 12,
       nfold =  10,
       prediction = FALSE,
       showsd = TRUE,
-      early_stopping_rounds = 5, 
+      early_stopping_rounds = 5,
       verbose = 1,
-      print_every_n = 500)
-    cv$evaluation_log %>% pull(4) %>% min 
+      print_every_n = 500
+    )
+    cv$evaluation_log %>% pull(4) %>% min
   },
   par.set = makeParamSet(
     makeNumericParam("eta",                    lower = 0.005, upper = 0.36),
     makeNumericParam("gamma",                  lower = 1,     upper = 6),
-    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
-    makeIntegerParam("min_child_weight",       lower= 1,    upper = 2000),
+    makeIntegerParam("max_depth",              lower = 2,     upper = 10),
+    makeIntegerParam("min_child_weight",       lower = 1,     upper = 2000),
     makeNumericParam("subsample",              lower = 0.01,  upper = 1),
     makeNumericParam("colsample_bytree",       lower = 0.01,  upper = 1),
     makeNumericParam("max_delta_step",         lower = 0,     upper = 10)
   ),
-  minimize = TRUE 
+  minimize = TRUE
 )
 
-do_bayes <- function(n_design = NULL, opt_steps = NULL, of = obj.fun, seed = seed) {
-  set.seed(seed)
-  
-  des <- generateDesign(n=n_design,
-                        par.set = getParamSet(of),
-                        fun = lhs::randomLHS)
- 
-  control <- makeMBOControl() %>%
-    setMBOControlTermination(., iters = opt_steps)
- 
-  run <- mbo(fun = of,
-             design = des,
-             learner = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE)),
-             control = control, 
-             show.info = TRUE)
- 
-  opt_plot <- run$opt.path$env$path %>%
-    mutate(Round = row_number()) %>%
-    mutate(type = case_when(Round <= n_design ~ "Design",
-                            TRUE ~ "mlrMBO optimization")) %>%
-    ggplot(aes(x= Round, y= y, color= type)) + 
-    geom_point() +
-    labs(title = "mlrMBO optimization") +
-    ylab("-log(likelihood)")
- 
-  print(run$x)
- 
-  return(list(run = run, plot = opt_plot))
-}
+do_bayes <-
+  function(n_design = NULL,
+           opt_steps = NULL,
+           of = obj.fun,
+           seed = seed) {
+    set.seed(seed)
+    
+    des <- generateDesign(n = n_design,
+                          par.set = getParamSet(of),
+                          fun = lhs::randomLHS)
+    
+    control <-
+      makeMBOControl() %>% setMBOControlTermination(., iters = opt_steps)
+    
+    run <- mbo(
+      fun = of,
+      design = des,
+      learner = makeLearner(
+        "regr.km",
+        predict.type = "se",
+        covtype = "matern3_2",
+        control = list(trace = FALSE)
+      ),
+      control = control,
+      show.info = TRUE
+    )
+    
+    opt_plot <- run$opt.path$env$path %>%
+      mutate(Round = row_number()) %>%
+      mutate(type = case_when(Round <= n_design ~ "Design",
+                              TRUE ~ "mlrMBO optimization")) %>%
+      ggplot(aes(x = Round, y = y, color = type)) +
+      geom_point() +
+      labs(title = "mlrMBO optimization") +
+      ylab("-log(likelihood)")
+    
+    print(run$x)
+    
+    return(list(run = run, plot = opt_plot))
+  }
 
 # des <- generateDesign(n=15,
 #                       par.set = getParamSet(obj.fun),
 #                       fun = lhs::randomLHS)
- 
-# kable(des, format = "html", digits = 4) %>% 
+
+# kable(des, format = "html", digits = 4) %>%
 #   kable_styling(font_size = 10) %>%
 #   kable_material_dark()
 
-runs <- do_bayes(n_design = 15, of = obj.fun, opt_steps = 10, seed = seed)
+runs <-
+  do_bayes(
+    n_design = 20,
+    of = obj.fun,
+    opt_steps = 20,
+    seed = seed
+  )
 
 plot(runs$run)
 
 best.params <- runs$run$x
 
 optimal.cv <- xgb.cv(
-      params = best.params,
-      data = BoostTrainData, 
-      nround = 7000,
-      nthread = 12, 
-      nfold =  10,
-      prediction = FALSE,
-      showsd = TRUE,
-      early_stopping_rounds = 5, 
-      verbose = 1,
-      print_every_n = 100)
+  params = best.params,
+  data = BoostTrainData,
+  nround = 7000,
+  nthread = 12,
+  nfold =  10,
+  prediction = FALSE,
+  showsd = TRUE,
+  early_stopping_rounds = 5,
+  verbose = 1,
+  print_every_n = 100
+)
 
 set.seed(seed)
 model <-
   xgboost(
     params = best.params,
-    data = BoostTrainData, 
+    data = BoostTrainData,
     nrounds = optimal.cv$best_ntreelimit,
     objective = "reg:squarederror"
-  ) 
-
-
+  )
 
 
 
@@ -496,7 +520,7 @@ model <-
 
 summary(model)
 
-pred <- predict(model, testData %>% as.matrix())
+pred <- predict(model, testData %>% select(!is.character) %>% as.matrix())
 
 writeSubmit(pred)
 
