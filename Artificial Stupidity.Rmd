@@ -61,7 +61,8 @@ pkg_list <- c(
   "lhs", 
   "smoof", 
   "mlrMBO", 
-  "DiceKriging")
+  "DiceKriging", 
+  "parallel")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -172,13 +173,14 @@ allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 
 # allData <- allData %>% select(-factorCharCols) %>%
 #   add_column(allData[factorCharCols] %>%
-#   replace(is.na(.),"") %>%
+#   replace(is.na(.),"N/A") %>%
 #   dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
-#   clean_names() %>%
+#   clean_names())
+#   %>%
 #   select_if(~sum(.) != 1))
   
 allData[factorCharCols] <- allData[factorCharCols] %>%
-  replace(is.na(.), "N/A") %>% 
+  replace(is.na(.), "N/A") %>%
   mutate_all(as.factor)
 
 allData <- allData %>% select(-c(country_code, country))
@@ -277,8 +279,8 @@ prep_fun <- function(x) {
   }
 
 
-# allData[longCharCols] <- allData[longCharCols] %>% 
-#   mutate_all(funs(prep_fun(.))) %>% 
+# allData[longCharCols] <- allData[longCharCols] %>%
+#   mutate_all(funs(prep_fun(.))) %>%
 #   replace(is.na(.), "")
 
 ## TODO: generate new numeric cols for long text cols 
@@ -296,8 +298,8 @@ allData[numCols] <- allData[numCols] %>%
   mutate_at(vars(-price), funs(scale)) %>%  
   replace(is.na(.),0) 
 
-allData[facCols] <- allData[facCols] %>% 
-  mutate_all(funs(as.numeric(.)-1)) 
+allData[facCols] <- allData[facCols] %>%
+  mutate_all(funs(as.numeric(.)-1))
 
 
 remove0var <- function(dat) {
@@ -332,8 +334,7 @@ BoostTrainData <- trainData %>% select(!is.character)
 
 BoostTrainData <- xgb.DMatrix(
   model.matrix(price ~ ., data = BoostTrainData),
-  label = as.matrix(BoostTrainData %>% select(price)),
-  base_margin = log(BoostTrainData$price)
+  label = as.matrix(BoostTrainData %>% select(price))
 )
 
 obj.fun <- makeSingleObjectiveFunction(
@@ -350,11 +351,13 @@ obj.fun <- makeSingleObjectiveFunction(
         subsample        = x["subsample"],
         colsample_bytree = x["colsample_bytree"],
         max_delta_step   = x["max_delta_step"],
-        objective        = 'reg:squarederror'
+        tweedie_variance_power = x["tweedie_variance_power"],
+        objective        = 'reg:tweedie', 
+        eval_metric      = 'rmse'
       ),
       data = BoostTrainData,
       nround = 7000,
-      nthread = 12,
+      nthread = detectCores(FALSE, TRUE),
       nfold =  10,
       prediction = FALSE,
       showsd = TRUE,
@@ -366,12 +369,13 @@ obj.fun <- makeSingleObjectiveFunction(
   },
   par.set = makeParamSet(
     makeNumericParam("eta",                    lower = 0.005, upper = 0.36),
-    makeNumericParam("gamma",                  lower = 1,     upper = 6),
-    makeIntegerParam("max_depth",              lower = 2,     upper = 10),
+    makeNumericParam("gamma",                  lower = 1,     upper = 8),
+    makeIntegerParam("max_depth",              lower = 2,     upper = 15),
     makeIntegerParam("min_child_weight",       lower = 1,     upper = 2000),
     makeNumericParam("subsample",              lower = 0.01,  upper = 1),
     makeNumericParam("colsample_bytree",       lower = 0.01,  upper = 1),
-    makeNumericParam("max_delta_step",         lower = 0,     upper = 10)
+    makeNumericParam("max_delta_step",         lower = 0,     upper = 10), 
+    makeNumericParam("tweedie_variance_power", lower = 1.75,  upper = 1.85)
   ),
   minimize = TRUE
 )
@@ -456,7 +460,8 @@ model <-
     params = best.params,
     data = BoostTrainData,
     nrounds = optimal.cv$best_ntreelimit,
-    objective = "reg:squarederror"
+    objective = 'reg:tweedie',
+    eval_metric = 'rmse'
   )
 
 
