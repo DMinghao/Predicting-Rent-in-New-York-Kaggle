@@ -304,6 +304,7 @@ remove0var <- function(dat) {
     out <- lapply(dat, function(x) length(unique(x)))
     want <- which(!out > 1)
     name <- unlist(want) %>% names()
+    print(name)
     dat %>% select(-name)
 }
 
