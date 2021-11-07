@@ -71,6 +71,7 @@ load_pkgs(pkg_list)
 # https://docs.anaconda.com/anaconda/user-guide/tasks/tensorflow 
 # conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
 seed <- 123
+saveProcessedData <- F
 use_condaenv("r-reticulate")
 ```
 
@@ -101,7 +102,11 @@ compare_df_cols(rawData, scoringData) %>%
 
 pricedScoringData <- scoringData %>% mutate(price = -1)
 
-allData <- rawData %>% bind_rows(pricedScoringData) %>% select(-id)
+allData <- rawData %>% bind_rows(pricedScoringData) 
+
+extractID <- allData %>% select(id)
+
+allData <- allData %>% select(-id)
 
 
 numericCols <- allData %>% select(is.numeric) %>% colnames()
@@ -279,9 +284,17 @@ prep_fun <- function(x) {
   }
 
 
-# allData[longCharCols] <- allData[longCharCols] %>%
-#   mutate_all(funs(prep_fun(.))) %>%
-#   replace(is.na(.), "")
+textColsAgg <- allData[longCharCols] %>%
+  mutate_all(funs(prep_fun(.))) %>%
+  replace(is.na(.), "") %>%
+  unite(allText) %>%
+  add_column(ID = extractID) %>%
+  relocate(ID)
+
+stemmedText <- textColsAgg %>%
+  unnest_tokens(input = allText, output = word) %>%
+  anti_join(stop_words)
+
 
 ## TODO: generate new numeric cols for long text cols 
 ## TODO: transform long text cols to numeric value 
@@ -325,17 +338,40 @@ allData <- allData %>% remove0var()
 trainData <- allData %>% filter(price > -1)
 testData <- allData %>% filter(price == -1) %>% select(-price)
 
+
+
+if (saveProcessedData) {
+  write.csv(
+    allData %>%
+      add_column(ID = extractID) %>%
+      relocate(ID) %>%
+      filter(price > -1) %>%
+      select(!is.character),
+    "processedTrainData.csv",
+    row.names = F
+  )
+  write.csv(
+    allData %>%
+      add_column(ID = extractID) %>%
+      relocate(ID) %>%
+      filter(price == -1) %>%
+      select(-price) %>%
+      select(!is.character),
+    "processedTestData.csv",
+    row.names = F
+  )
+}
+
+
 ```
 
 
 
 ```{r}
-BoostTrainData <- trainData %>% select(!is.character) 
+BoostTrainData <- trainData %>% select(!is.character)
 
-BoostTrainData <- xgb.DMatrix(
-  model.matrix(price ~ ., data = BoostTrainData),
-  label = as.matrix(BoostTrainData %>% select(price))
-)
+BoostTrainData <- xgb.DMatrix(model.matrix(price ~ ., data = BoostTrainData),
+                              label = as.matrix(BoostTrainData %>% select(price)))
 
 obj.fun <- makeSingleObjectiveFunction(
   name = "xgb_cv_bayes",
@@ -344,16 +380,16 @@ obj.fun <- makeSingleObjectiveFunction(
     cv <- xgb.cv(
       params = list(
         # booster          = "gbtree",
-        eta              = x["eta"],
-        max_depth        = x["max_depth"],
-        min_child_weight = x["min_child_weight"],
-        gamma            = x["gamma"],
-        subsample        = x["subsample"],
-        colsample_bytree = x["colsample_bytree"],
-        max_delta_step   = x["max_delta_step"],
+        eta                    = x["eta"],
+        max_depth              = x["max_depth"],
+        min_child_weight       = x["min_child_weight"],
+        gamma                  = x["gamma"],
+        subsample              = x["subsample"],
+        colsample_bytree       = x["colsample_bytree"],
+        max_delta_step         = x["max_delta_step"],
         tweedie_variance_power = x["tweedie_variance_power"],
-        objective        = 'reg:tweedie', 
-        eval_metric      = 'rmse'
+        objective              = 'reg:tweedie',
+        eval_metric            = 'rmse'
       ),
       data = BoostTrainData,
       nround = 7000,
@@ -374,8 +410,8 @@ obj.fun <- makeSingleObjectiveFunction(
     makeIntegerParam("min_child_weight",       lower = 1,     upper = 2000),
     makeNumericParam("subsample",              lower = 0.01,  upper = 1),
     makeNumericParam("colsample_bytree",       lower = 0.01,  upper = 1),
-    makeNumericParam("max_delta_step",         lower = 0,     upper = 10), 
-    makeNumericParam("tweedie_variance_power", lower = 1.75,  upper = 1.85)
+    makeNumericParam("max_delta_step",         lower = 0,     upper = 10),
+    makeNumericParam("tweedie_variance_power", lower = 1,     upper = 2)
   ),
   minimize = TRUE
 )
@@ -433,7 +469,7 @@ runs <-
   do_bayes(
     n_design = 20,
     of = obj.fun,
-    opt_steps = 20,
+    opt_steps = 40,
     seed = seed
   )
 
@@ -467,15 +503,16 @@ model <-
 
 
 
-
+# [mbo] 0: eta=0.0435; gamma=6.31; max_depth=12; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 58.3 : 415.4 secs : initdesign
+# [mbo] 8: eta=0.0099; gamma=1.18; max_depth=11; min_child_weight=761; subsample=0.707; colsample_bytree=0.637; max_delta_step=6.46; tweedie_variance_power=1.56 : y = 58.2 : 2351.0 secs : infill_cb
 
 
 # xgb_train_rmse <- NULL
 # xgb_test_rmse <- NULL
 # round <- NULL
-# 
+#
 # hyper_grid <- expand.grid(max_depth = seq(3, 10, 1), eta = seq(.02, .36, .02), gamma = seq(0, 6, 1))
-# 
+#
 # for(j in 1:nrow(hyper_grid)) {
 #   set.seed(seed)
 #   m_xgb_untuned <- xgb.cv(
@@ -485,31 +522,31 @@ model <-
 #     early_stopping_rounds = 3,
 #     nfold = 10,
 #     max_depth = hyper_grid$max_depth[j],
-#     eta = hyper_grid$eta[j], 
-#     gamma = hyper_grid$gamma[j], 
+#     eta = hyper_grid$eta[j],
+#     gamma = hyper_grid$gamma[j],
 #     verbose = F
 #   )
-#   
+#
 #   temp_train_rmse <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
 #   temp_test_rmse <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
-#   
+#
 #   cat(j,"\n")
 #   cat(hyper_grid$max_depth[j],"\t")
 #   cat(hyper_grid$eta[j],"\n")
 #   cat(m_xgb_untuned$best_iteration,"\t")
 #   cat(temp_train_rmse,"\t")
 #   cat(temp_test_rmse,"\n")
-#   
+#
 #   xgb_train_rmse[j] <- temp_train_rmse
-#   xgb_test_rmse[j] <- temp_test_rmse 
+#   xgb_test_rmse[j] <- temp_test_rmse
 #   round[j] <- m_xgb_untuned$best_iteration
-#   
-#   
+#
+#
 #   # c(temp_train_rmse, temp_test_rmse)
 # }
-# 
-# 
-# 
+#
+#
+#
 # set.seed(seed)
 # model <-
 #   xgboost(
@@ -521,12 +558,13 @@ model <-
 #     max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
 #     gamma = hyper_grid[which.min(xgb_test_rmse),]$gamma,
 #     eta = hyper_grid[which.min(xgb_test_rmse),]$eta
-#   ) 
+#   )
 
 
 summary(model)
 
-pred <- predict(model, testData %>% select(!is.character) %>% as.matrix())
+pred <-
+  predict(model, testData %>% select(!is.character) %>% as.matrix())
 
 writeSubmit(pred)
 
