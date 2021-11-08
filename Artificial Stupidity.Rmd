@@ -588,6 +588,8 @@ model <-
 
 summary(model)
 
+xgb.importance(model)
+
 pred <-
   predict(model, model.matrix(price~., testData %>% select(!is.character) %>% mutate(price = -1)) %>% xgb.DMatrix())
 
