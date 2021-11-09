@@ -163,6 +163,9 @@ rateCols <- allData %>%
 
 ```{r}
 
+allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
+
+
 allData[rateCols] <- allData[rateCols] %>% 
   mutate(host_response_rate = gsub("N/A","0%", host_response_rate)) %>% 
   mutate(host_acceptance_rate = gsub("N/A","0%", host_acceptance_rate)) %>% 
@@ -283,17 +286,20 @@ prep_fun <- function(x) {
       lemmatize_strings()
   }
 
-
-textColsAgg <- allData[longCharCols] %>%
+allData[longCharCols] <- allData[longCharCols] %>%
   mutate_all(funs(prep_fun(.))) %>%
-  replace(is.na(.), "") %>%
-  unite(allText) %>%
-  add_column(ID = extractID) %>%
-  relocate(ID)
+  replace(is.na(.), "") 
 
-stemmedText <- textColsAgg %>%
-  unnest_tokens(input = allText, output = word) %>%
-  anti_join(stop_words)
+# textColsAgg <- allData[longCharCols] %>%
+#   mutate_all(funs(prep_fun(.))) %>%
+#   replace(is.na(.), "") %>%
+#   unite(allText) %>%
+#   add_column(ID = extractID$id) %>%
+#   relocate(ID)
+# 
+# stemmedText <- textColsAgg %>%
+#   unnest_tokens(input = allText, output = word) %>%
+#   anti_join(stop_words)
 
 
 ## TODO: generate new numeric cols for long text cols 
@@ -335,31 +341,25 @@ allData <- allData %>% remove0var()
 # 
 # allData$price <- priceTemp
 
-trainData <- allData %>% filter(price > -1)
-testData <- allData %>% filter(price == -1) %>% select(-price)
-
 
 
 if (saveProcessedData) {
-  write.csv(
-    allData %>%
-      add_column(ID = extractID) %>%
-      relocate(ID) %>%
-      filter(price > -1) %>%
-      select(!is.character),
-    "processedTrainData.csv",
-    row.names = F
-  )
-  write.csv(
-    allData %>%
-      add_column(ID = extractID) %>%
-      relocate(ID) %>%
-      filter(price == -1) %>%
-      select(-price) %>%
-      select(!is.character),
-    "processedTestData.csv",
-    row.names = F
-  )
+  trainData <- allData %>%
+    add_column(ID = extractID$id) %>%
+    relocate(ID) %>%
+    filter(price > -1)
+  testData <- allData %>%
+    add_column(ID = extractID$id) %>%
+    relocate(ID) %>%
+    filter(price == -1) %>% select(-price)
+  
+  
+  write.csv(trainData,
+            "processedTrainData.csv",
+            row.names = F)
+  write.csv(testData,
+            "processedTestData.csv",
+            row.names = F)
 }
 
 
