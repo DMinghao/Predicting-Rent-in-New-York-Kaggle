@@ -469,14 +469,27 @@ runs <-
   do_bayes(
     n_design = 20,
     of = obj.fun,
-    opt_steps = 200,
+    opt_steps = 50,
     seed = seed
   )
 
 plot(runs$run)
 
 best.params <- runs$run$x
+# best.params <- list(
+#         eta                    = 0.00504, 
+#         max_depth              = 8, 
+#         min_child_weight       = 1868, 
+#         gamma                  = 3.42, 
+#         subsample              = 0.996, 
+#         colsample_bytree       = 0.253, 
+#         max_delta_step         = 2.93, 
+#         tweedie_variance_power = 1.34, 
+#         objective = 'reg:tweedie',
+#         eval_metric = 'rmse'
+#       )
 
+set.seed(seed)
 optimal.cv <- xgb.cv(
   params = best.params,
   data = BoostTrainData,
@@ -495,9 +508,7 @@ model <-
   xgboost(
     params = best.params,
     data = BoostTrainData,
-    nrounds = optimal.cv$best_ntreelimit,
-    objective = 'reg:tweedie',
-    eval_metric = 'rmse'
+    nrounds = optimal.cv$best_ntreelimit
   )
 
 
@@ -588,7 +599,7 @@ model <-
 
 summary(model)
 
-xgb.importance(model)
+# xgb.importance(model)
 
 pred <-
   predict(model, model.matrix(price~., testData %>% select(!is.character) %>% mutate(price = -1)) %>% xgb.DMatrix())

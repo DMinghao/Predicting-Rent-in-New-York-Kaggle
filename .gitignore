@@ -40,3 +40,4 @@ input/
 submission.csv
 processedTestData.csv
 processedTrainData.csv
+*.docx
