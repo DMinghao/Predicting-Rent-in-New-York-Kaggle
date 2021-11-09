@@ -90,7 +90,7 @@ compare_df_cols(rawData, scoringData) %>%
            rawData %>% is.na() | scoringData %>% is.na())
 
 rawData %>% mutate(license = license %>% as.logical()) -> rawData
-scoringData %>% mutate(zipcode = zipcode %>% as.numeric()) -> scoringData
+scoringData  %>% mutate(zipcode = zipcode %>% as.numeric()) -> scoringData
 
 compare_df_cols(rawData, scoringData) %>%
   filter(rawData != scoringData | rawData %>% is.na() | scoringData %>% is.na())
@@ -104,10 +104,10 @@ pricedScoringData <- scoringData %>% mutate(price = -1)
 
 allData <- rawData %>% bind_rows(pricedScoringData) 
 
+
 extractID <- allData %>% select(id)
 
 allData <- allData %>% select(-id)
-
 
 numericCols <- allData %>% select(is.numeric) %>% colnames()
 boolCols <- allData %>% select(is.logical) %>% colnames()
@@ -163,8 +163,17 @@ rateCols <- allData %>%
 
 ```{r}
 
-allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
+#######
+## TODO !!! IMPORTANT !!! 
+## 
+## handel na values bfore hand !!!
+## 
+#######
 
+
+allData <- allData %>% mutate(zipcode = ifelse(is.na(zipcode), 99999, zipcode))
+
+allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
 
 allData[rateCols] <- allData[rateCols] %>% 
   mutate(host_response_rate = gsub("N/A","0%", host_response_rate)) %>% 
@@ -247,10 +256,10 @@ allData <- allData %>% select(-amenities) %>% clean_names()
 allData <- allData %>%
   mutate(host_response_time = gsub("within a ", "", host_response_time)) %>%
   mutate(host_response_time = gsub("within an ", "", host_response_time)) %>%
-  mutate(host_response_time = gsub("hour", "1", host_response_time)) %>%
   mutate(host_response_time = gsub("few hours", "12", host_response_time)) %>%
-  mutate(host_response_time = gsub("day", "24", host_response_time)) %>%
+  mutate(host_response_time = gsub("hour", "1", host_response_time)) %>%
   mutate(host_response_time = gsub("a few days or more", "48", host_response_time)) %>%
+  mutate(host_response_time = gsub("day", "24", host_response_time)) %>%
   mutate(host_response_time = replace_na(host_response_time, "N/A")) %>% 
   mutate(host_response_time = gsub("N/A", "96", host_response_time)) %>%
   mutate(host_response_time = as.numeric(host_response_time))
@@ -263,6 +272,7 @@ allData <- allData %>%
     grepl("days", calendar_updated) ~ as.numeric(gsub("([0-9]+).*$", "\\1", calendar_updated)) %>% as.character(), 
     grepl("weeks", calendar_updated) ~ as.character(as.numeric(gsub("([0-9]+).*$", "\\1", calendar_updated))*7),
     grepl("months", calendar_updated) ~ as.character(as.numeric(gsub("([0-9]+).*$", "\\1", calendar_updated))*30), 
+    grepl("a week", calendar_updated) ~ "7",
     grepl("week", calendar_updated) ~ "7",
     grepl("never", calendar_updated) ~ "3000",
     TRUE ~ as.character(calendar_updated)
@@ -272,7 +282,7 @@ allData <- allData %>%
 
 allData[dateCols] <- allData %>% 
   select(dateCols) %>% 
-  mutate_all(funs(Sys.Date() - .)) %>% 
+  mutate_all(funs(max(., na.rm = TRUE) - .)) %>% 
   mutate_all(as.numeric)
 
 prep_fun <- function(x) {
@@ -286,9 +296,9 @@ prep_fun <- function(x) {
       lemmatize_strings()
   }
 
-allData[longCharCols] <- allData[longCharCols] %>%
-  mutate_all(funs(prep_fun(.))) %>%
-  replace(is.na(.), "") 
+# allData[longCharCols] <- allData[longCharCols] %>%
+#   mutate_all(funs(prep_fun(.))) %>%
+#   replace(is.na(.), "") 
 
 # textColsAgg <- allData[longCharCols] %>%
 #   mutate_all(funs(prep_fun(.))) %>%
@@ -310,6 +320,12 @@ allData[longCharCols] <- allData[longCharCols] %>%
 
 ```{r}
 
+allData %>% 
+  select(where(is.numeric)) %>% 
+  select(-price) %>% 
+  mutate_all(function(x) x^2) %>% 
+  sapply(function(x) ifelse(sum(is.na(x))>0, sum(is.na(x)),NA)) %>% na.omit()
+
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
 
@@ -330,6 +346,8 @@ remove0var <- function(dat) {
 }
 
 allData <- allData %>% remove0var() 
+
+
 # 
 # 
 # priceTemp <- allData %>% select(price)
@@ -355,10 +373,10 @@ if (saveProcessedData) {
   
   
   write.csv(trainData,
-            "processedTrainData.csv",
+            file("processedTrainData.csv",encoding="UTF-8"),
             row.names = F)
   write.csv(testData,
-            "processedTestData.csv",
+            file("processedTestData.csv",encoding="UTF-8"),
             row.names = F)
 }
 
