@@ -62,7 +62,9 @@ pkg_list <- c(
   "smoof", 
   "mlrMBO", 
   "DiceKriging", 
-  "parallel")
+  "parallel", 
+  "mice", 
+  "forcats")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -72,6 +74,7 @@ load_pkgs(pkg_list)
 # conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
 seed <- 123
 saveProcessedData <- F
+'%!in%' <- function(x,y)!('%in%'(x,y))
 use_condaenv("r-reticulate")
 ```
 
@@ -163,18 +166,43 @@ rateCols <- allData %>%
 
 ```{r}
 
+tempCopy <- allData
+
+allData<- tempCopy
+
 #######
 ## TODO !!! IMPORTANT !!! 
 ## 
 ## handel na values bfore hand !!!
-## https://www.kaggle.com/c/predictlala2021/leaderboard
+## https://www.kaggle.com/c/predictlala2021/leaderboard 
 ## 
 #######
 
+## TODO: handle outliers 
+## TODO: reduce factors 
 
-allData <- allData %>% mutate(zipcode = ifelse(is.na(zipcode), 99999, zipcode))
 
 allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
+
+
+##### Process zipcode column 
+
+mostCommonZip <- allData %>% 
+  select(c(neighbourhood_cleansed, neighbourhood_group_cleansed, city, zipcode)) %>% 
+  group_by(neighbourhood_cleansed, zipcode) %>% 
+  summarise(count = n()) %>% 
+  filter(count == max(count)) %>% 
+  ungroup()
+
+getZip <- function(neighbourhood_cleansed){
+  mostCommonZip %>% filter(neighbourhood_cleansed == neighbourhood_cleansed) %>% select(zipcode) %>% pull(zipcode)
+}
+
+allData <- allData %>% mutate(zipcode = ifelse(is.na(zipcode), getZip(neighbourhood_cleansed), zipcode)) %>% mutate(zipcode = zipcode %>% as.factor())
+
+
+
+##### Converte rate cols to rates 
 
 allData[rateCols] <- allData[rateCols] %>% 
   mutate(host_response_rate = gsub("N/A","0%", host_response_rate)) %>% 
@@ -182,12 +210,52 @@ allData[rateCols] <- allData[rateCols] %>%
   mutate(host_response_rate = gsub("%","", host_response_rate)) %>% 
   mutate(host_acceptance_rate = gsub("%","", host_acceptance_rate)) %>% 
   mutate_all(as.numeric) %>% 
-  mutate_each(funs(./100))
+  mutate_each(funs(./100)) %>% 
+  replace(is.na(.),0)
 
 
-allData[numericCols] <- allData[numericCols] %>% replace(is.na(.),0)
+temp <- allData
+
+
+##### Handle/impute NA value for bool and numeric columns
+
+allData <- temp
+
+# allData %>% ggplot(aes(weekly_price)) + geom_density()
+# allData %>% ggplot(aes(monthly_price)) + geom_density()
+
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 
+reservedNumCols <- allData %>% select(c(square_feet, weekly_price, monthly_price)) %>% colnames()
+
+allData[numericCols[numericCols %!in% reservedNumCols]] <- 
+  allData[numericCols[numericCols %!in% reservedNumCols]] %>% replace(is.na(.),0)
+
+allData <- allData %>% mutate(square_feet = ifelse(square_feet == 0, NA, square_feet))
+allData <- allData %>% mutate(weekly_price = ifelse(weekly_price == 0, NA, weekly_price))
+allData <- allData %>% mutate(monthly_price = ifelse(monthly_price == 0, NA, monthly_price))
+
+impute <- allData %>% select(-price) %>% select(where(is.numeric)) %>% colnames()
+tempData <-
+  parlmice(
+    allData[impute],
+    m = ncol(allData[impute]),
+    maxit = 200,
+    cluster.seed = seed,
+    print = FALSE
+  )
+
+allData[impute] <- complete(tempData)
+
+# allData %>% ggplot(aes(weekly_price)) + geom_density()
+# allData %>% ggplot(aes(monthly_price)) + geom_density()
+
+temp <- allData
+
+
+##### Process factor columns 
+
+allData <- temp
 
 # allData <- allData %>% select(-factorCharCols) %>%
 #   add_column(allData[factorCharCols] %>%
@@ -201,9 +269,15 @@ allData[factorCharCols] <- allData[factorCharCols] %>%
   replace(is.na(.), "N/A") %>%
   mutate_all(as.factor)
 
-allData <- allData %>% select(-c(country_code, country))
+allData <- allData %>% select(-c(country_code, country, state, market)) 
 
+reduceLevelCols <- allData %>% select(c(host_location, host_neighbourhood, street, neighbourhood_cleansed, city, smart_location, property_type, zipcode)) %>% colnames()
 
+allData[reduceLevelCols] <- allData[reduceLevelCols] %>% mutate_all(funs(fct_lump(., prop = 0.001)))
+
+##### Conject new columns 
+
+## sex 
 
 allData %>% select(host_name) %>% c() -> names 
 
@@ -214,6 +288,9 @@ allData <- allData %>%
             by = c("host_name" = "name"))
 
 
+## word count 
+
+allData[longCharCols] <- allData[longCharCols] %>% replace(is.na(.), "")
 
 allData <- allData %>%
   bind_cols(allData[longCharCols] %>%
@@ -221,7 +298,7 @@ allData <- allData %>%
               rename_all(function(x) paste0(x, "_wcount")))
 
 
-
+##### process host verification and amenities 
 
 allData <- allData %>% 
   mutate(host_verifications = gsub("\\[|\\]|\\'|\\,", "", host_verifications)) %>% 
@@ -254,6 +331,9 @@ for(w in 1:length(amen_list[[1]])) {
 
 allData <- allData %>% select(-amenities) %>% clean_names()
 
+
+##### process text duration columns 
+
 allData <- allData %>%
   mutate(host_response_time = gsub("within a ", "", host_response_time)) %>%
   mutate(host_response_time = gsub("within an ", "", host_response_time)) %>%
@@ -281,10 +361,16 @@ allData <- allData %>%
   mutate(calendar_updated = as.numeric(calendar_updated))
 
 
+##### process date columns 
+
 allData[dateCols] <- allData %>% 
   select(dateCols) %>% 
   mutate_all(funs(max(., na.rm = TRUE) - .)) %>% 
   mutate_all(as.numeric)
+
+
+
+##### Text mining 
 
 prep_fun <- function(x) {
     x %>%
