@@ -167,6 +167,7 @@ rateCols <- allData %>%
 ## TODO !!! IMPORTANT !!! 
 ## 
 ## handel na values bfore hand !!!
+## https://www.kaggle.com/c/predictlala2021/leaderboard
 ## 
 #######
 
