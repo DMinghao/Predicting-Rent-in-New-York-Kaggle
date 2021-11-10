@@ -411,15 +411,15 @@ prep_fun <- function(x) {
 
 ```{r}
 
-allData %>% 
+allData <- allData %>% cbind( allData %>% 
   select(where(is.numeric)) %>% 
   select(-price) %>% 
   mutate_all(function(x) x^2) %>% 
-  sapply(function(x) ifelse(sum(is.na(x))>0, sum(is.na(x)),NA)) %>% na.omit()
+  setNames(paste0(names(.), "_2pow")))
 
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
-boolCols <- allData %>% select(is.boolean) %>% colnames()
+boolCols <- allData %>% select(is.logical) %>% colnames()
 
 allData[numCols] <- allData[numCols] %>% 
   mutate_at(vars(-price), funs(scale)) %>%  
@@ -428,7 +428,8 @@ allData[numCols] <- allData[numCols] %>%
 allData[facCols] <- allData[facCols] %>%
   mutate_all(funs(as.numeric(.)-1))
 
-
+allData[boolCols] <- allData[boolCols] %>% 
+  mutate_all(funs(as.numeric(.)))
 
 remove0var <- function(dat) {
     out <- lapply(dat, function(x) length(unique(x)))
