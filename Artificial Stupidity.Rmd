@@ -74,6 +74,7 @@ load_pkgs(pkg_list)
 # conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
 seed <- 123
 saveProcessedData <- F
+cores <- detectCores(FALSE, TRUE) - 1
 '%!in%' <- function(x,y)!('%in%'(x,y))
 use_condaenv("r-reticulate")
 ```
@@ -160,13 +161,14 @@ rateCols <- allData %>%
   select(c(host_response_rate, host_acceptance_rate)) %>% 
   colnames()
 
+
+tempCopy <- allData
+
 ```
 
 
 
 ```{r}
-
-tempCopy <- allData
 
 allData<- tempCopy
 
@@ -240,7 +242,9 @@ tempData <-
   parlmice(
     allData[impute],
     m = ncol(allData[impute]),
-    maxit = 200,
+    maxit = 100,
+    # n.core = cores, 
+    # n.imp.core = ncol(allData[impute]), 
     cluster.seed = seed,
     print = FALSE
   )
@@ -415,6 +419,7 @@ allData %>%
 
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
+boolCols <- allData %>% select(is.boolean) %>% colnames()
 
 allData[numCols] <- allData[numCols] %>% 
   mutate_at(vars(-price), funs(scale)) %>%  
@@ -422,6 +427,7 @@ allData[numCols] <- allData[numCols] %>%
 
 allData[facCols] <- allData[facCols] %>%
   mutate_all(funs(as.numeric(.)-1))
+
 
 
 remove0var <- function(dat) {
@@ -498,7 +504,7 @@ obj.fun <- makeSingleObjectiveFunction(
       ),
       data = BoostTrainData,
       nround = 7000,
-      nthread = detectCores(FALSE, TRUE),
+      nthread = ,
       nfold =  10,
       prediction = FALSE,
       showsd = TRUE,
