@@ -62,8 +62,8 @@ pkg_list <- c(
   "smoof", 
   "mlrMBO", 
   "DiceKriging", 
-  "parallel", 
   "mice", 
+  "parallel", 
   "forcats")
 load_pkgs(pkg_list)
 
@@ -74,7 +74,7 @@ load_pkgs(pkg_list)
 # conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
 seed <- 123
 saveProcessedData <- F
-cores <- detectCores(FALSE, TRUE) - 1
+cores <- detectCores() - 1
 '%!in%' <- function(x,y)!('%in%'(x,y))
 use_condaenv("r-reticulate")
 ```
@@ -172,16 +172,7 @@ tempCopy <- allData
 
 allData<- tempCopy
 
-#######
-## TODO !!! IMPORTANT !!! 
-## 
-## handel na values bfore hand !!!
-## https://www.kaggle.com/c/predictlala2021/leaderboard 
-## 
-#######
-
 ## TODO: handle outliers 
-## TODO: reduce factors 
 
 
 allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
@@ -240,12 +231,14 @@ allData <- allData %>% mutate(monthly_price = ifelse(monthly_price == 0, NA, mon
 impute <- allData %>% select(-price) %>% select(where(is.numeric)) %>% colnames()
 tempData <-
   parlmice(
-    allData[impute],
+    data = allData[impute],
     m = ncol(allData[impute]),
-    maxit = 100,
-    # n.core = cores, 
-    # n.imp.core = ncol(allData[impute]), 
+    # n.core = cores,
+    # n.imp.core = ncol(allData[impute]),
     cluster.seed = seed,
+    # seed = seed,
+    maxit = 10,
+    # method = "rf",
     print = FALSE
   )
 
@@ -272,6 +265,11 @@ allData <- temp
 allData[factorCharCols] <- allData[factorCharCols] %>%
   replace(is.na(.), "N/A") %>%
   mutate_all(as.factor)
+
+## allData <- allData %>% select(-c(host_location, host_neighbourhood, country_code, smart_location, city, street, country, state, market)) 
+
+## reduceLevelCols <- allData %>% select(c(neighbourhood_cleansed, property_type, zipcode)) %>% colnames()
+
 
 allData <- allData %>% select(-c(country_code, country, state, market)) 
 
@@ -411,11 +409,18 @@ prep_fun <- function(x) {
 
 ```{r}
 
-allData <- allData %>% cbind( allData %>% 
+copyData <- allData
+
+allData <- allData %>% cbind( copyData %>% 
   select(where(is.numeric)) %>% 
   select(-price) %>% 
   mutate_all(function(x) x^2) %>% 
   setNames(paste0(names(.), "_2pow")))
+allData <- allData %>% cbind( copyData %>% 
+  select(where(is.numeric)) %>% 
+  select(-price) %>% 
+  mutate_all(function(x) x^3) %>% 
+  setNames(paste0(names(.), "_3pow")))
 
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
