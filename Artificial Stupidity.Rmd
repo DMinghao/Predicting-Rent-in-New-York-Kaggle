@@ -173,6 +173,10 @@ tempCopy <- allData
 allData<- tempCopy
 
 ## TODO: handle outliers 
+## TODO: create mean price cols for different factors 
+## TODO: reconsider factor reduction 
+## TODO: reconsider impute data 
+## TODO: 
 
 
 allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
