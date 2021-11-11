@@ -228,28 +228,35 @@ reservedNumCols <- allData %>% select(c(square_feet, weekly_price, monthly_price
 allData[numericCols[numericCols %!in% reservedNumCols]] <- 
   allData[numericCols[numericCols %!in% reservedNumCols]] %>% replace(is.na(.),0)
 
-allData <- allData %>% mutate(square_feet = ifelse(square_feet == 0, NA, square_feet))
-allData <- allData %>% mutate(weekly_price = ifelse(weekly_price == 0, NA, weekly_price))
-allData <- allData %>% mutate(monthly_price = ifelse(monthly_price == 0, NA, monthly_price))
+allData <- allData %>% mutate(square_feet = ifelse(is.na(square_feet), 0, square_feet))
+allData <- allData %>% mutate(weekly_price = ifelse(is.na(weekly_price), 0, weekly_price))
+allData <- allData %>% mutate(monthly_price = ifelse(is.na(monthly_price), 0, monthly_price))
 
-impute <- allData %>% select(-price) %>% select(where(is.numeric)) %>% colnames()
-tempData <-
-  parlmice(
-    data = allData[impute],
-    m = ncol(allData[impute]),
-    # n.core = cores,
-    # n.imp.core = ncol(allData[impute]),
-    cluster.seed = seed,
-    # seed = seed,
-    maxit = 10,
-    # method = "rf",
-    print = FALSE
-  )
 
-allData[impute] <- complete(tempData)
+# allData <- allData %>% mutate(square_feet = ifelse(square_feet == 0, NA, square_feet))
+# allData <- allData %>% mutate(weekly_price = ifelse(weekly_price == 0, NA, weekly_price))
+# allData <- allData %>% mutate(monthly_price = ifelse(monthly_price == 0, NA, monthly_price))
+# 
+# impute <- allData %>% select(-price) %>% select(where(is.numeric)) %>% colnames()
+# tempData <-
+#   parlmice(
+#     data = allData[impute],
+#     m = ncol(allData[impute]),
+#     # n.core = cores,
+#     # n.imp.core = ncol(allData[impute]),
+#     cluster.seed = seed,
+#     # seed = seed,
+#     maxit = 100,
+#     method = "rf",
+#     print = FALSE
+#   )
+# 
+# allData[impute] <- complete(tempData)
 
 # allData %>% ggplot(aes(weekly_price)) + geom_density()
 # allData %>% ggplot(aes(monthly_price)) + geom_density()
+
+
 
 temp <- allData
 
@@ -277,11 +284,22 @@ allData[factorCharCols] <- allData[factorCharCols] %>%
 
 allData <- allData %>% select(-c(country_code, country, state, market)) 
 
-reduceLevelCols <- allData %>% select(c(host_location, host_neighbourhood, street, neighbourhood_cleansed, city, smart_location, property_type, zipcode)) %>% colnames()
-
-allData[reduceLevelCols] <- allData[reduceLevelCols] %>% mutate_all(funs(fct_lump(., prop = 0.001)))
+# reduceLevelCols <- allData %>% select(c(host_location, host_neighbourhood, street, neighbourhood_cleansed, city, smart_location, property_type, zipcode)) %>% colnames()
+# 
+# allData[reduceLevelCols] <- allData[reduceLevelCols] %>% mutate_all(funs(fct_lump(., prop = 0.001)))
 
 ##### Conject new columns 
+
+## mean price 
+
+mean_price <- allData %>% 
+  filter(price > -1) %>% 
+  group_by(neighbourhood_cleansed = neighbourhood_cleansed) %>%
+    summarize(record_count_c = n(), 
+              price_mean_c = mean(price)) %>%  
+    arrange(desc(record_count_c))
+
+allData <- allData %>% merge(mean_price, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"))
 
 ## sex 
 
