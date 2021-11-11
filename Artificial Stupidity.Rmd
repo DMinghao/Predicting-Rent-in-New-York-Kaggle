@@ -453,18 +453,16 @@ allData <- allData %>% remove0var()
 # 
 # allData$price <- priceTemp
 
-
+trainData <- allData %>%
+    # add_column(ID = extractID$id) %>%
+    # relocate(ID) %>%
+    filter(price > -1)
+testData <- allData %>%
+    # add_column(ID = extractID$id) %>%
+    # relocate(ID) %>%
+    filter(price == -1) %>% select(-price)
 
 if (saveProcessedData) {
-  trainData <- allData %>%
-    add_column(ID = extractID$id) %>%
-    relocate(ID) %>%
-    filter(price > -1)
-  testData <- allData %>%
-    add_column(ID = extractID$id) %>%
-    relocate(ID) %>%
-    filter(price == -1) %>% select(-price)
-  
   
   write.csv(trainData,
             file("processedTrainData.csv",encoding="UTF-8"),
@@ -505,7 +503,7 @@ obj.fun <- makeSingleObjectiveFunction(
       ),
       data = BoostTrainData,
       nround = 7000,
-      nthread = ,
+      nthread = cores,
       nfold =  10,
       prediction = FALSE,
       showsd = TRUE,
