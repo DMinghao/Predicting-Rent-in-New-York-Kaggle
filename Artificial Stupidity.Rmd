@@ -64,7 +64,8 @@ pkg_list <- c(
   "DiceKriging", 
   "mice", 
   "parallel", 
-  "forcats")
+  "forcats", 
+  "Boruta")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -296,10 +297,17 @@ mean_price <- allData %>%
   filter(price > -1) %>% 
   group_by(neighbourhood_cleansed = neighbourhood_cleansed) %>%
     summarize(record_count_c = n(), 
-              price_mean_c = mean(price)) %>%  
-    arrange(desc(record_count_c))
+              price_mean_c = mean(price))
 
 allData <- allData %>% merge(mean_price, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"))
+allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData$price_mean_c, na.rm = TRUE)
+
+mean_price2 <- allData %>% 
+  filter(price > -1) %>% 
+  group_by(neighbourhood_group_cleansed = neighbourhood_group_cleansed) %>%
+  summarize(price_mean_ngc = mean(price))
+
+allData <- allData %>% merge(mean_price2, by = c("neighbourhood_group_cleansed", "neighbourhood_group_cleansed"))
 
 ## sex 
 
@@ -481,13 +489,24 @@ allData <- allData %>% remove0var()
 # allData$price <- priceTemp
 
 trainData <- allData %>%
+    select(!is.character) %>% 
     # add_column(ID = extractID$id) %>%
     # relocate(ID) %>%
     filter(price > -1)
 testData <- allData %>%
+    select(!is.character) %>% 
     # add_column(ID = extractID$id) %>%
     # relocate(ID) %>%
     filter(price == -1) %>% select(-price)
+
+
+boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 1000)  %>% 
+  getSelectedAttributes(withTentative = TRUE)
+
+trainData <- trainData %>% select(c(price, boruta_output %>% unlist()))
+testData <- testData %>% select(c(price, boruta_output %>% unlist()))
+
+
 
 if (saveProcessedData) {
   
@@ -500,12 +519,12 @@ if (saveProcessedData) {
 }
 
 
+
 ```
 
 
 
 ```{r}
-BoostTrainData <- trainData %>% select(!is.character)
 
 BoostTrainData <- xgb.DMatrix(model.matrix(price ~ ., data = BoostTrainData),
                               label = as.matrix(BoostTrainData %>% select(price)))
@@ -612,19 +631,19 @@ runs <-
 
 plot(runs$run)
 
-best.params <- runs$run$x
-# best.params <- list(
-#         eta                    = 0.00504, 
-#         max_depth              = 8, 
-#         min_child_weight       = 1868, 
-#         gamma                  = 3.42, 
-#         subsample              = 0.996, 
-#         colsample_bytree       = 0.253, 
-#         max_delta_step         = 2.93, 
-#         tweedie_variance_power = 1.34, 
-#         objective = 'reg:tweedie',
-#         eval_metric = 'rmse'
-#       )
+# best.params <- runs$run$x
+best.params <- list(
+        eta                    = 0.0435,
+        max_depth              = 12,
+        min_child_weight       = 1626,
+        gamma                  = 2.37,
+        subsample              = 0.714,
+        colsample_bytree       = 0.439,
+        max_delta_step         = 2.02,
+        tweedie_variance_power = 1.29,
+        objective = 'reg:tweedie',
+        eval_metric = 'rmse'
+      )
 
 set.seed(seed)
 optimal.cv <- xgb.cv(
@@ -678,6 +697,7 @@ model <-
 ### [1] 1.562195
 
 # [mbo] 16: eta=0.00533; gamma=2.37; max_depth=12; min_child_weight=1008; subsample=0.87; colsample_bytree=0.715; max_delta_step=6.15; tweedie_variance_power=1.39 : y = 58.2 : 3483.8 secs : infill_cb
+# [mbo] 0: eta=0.0435; gamma=6.31; max_depth=12; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 426.4 secs : initdesign
 
 
 # xgb_train_rmse <- NULL
