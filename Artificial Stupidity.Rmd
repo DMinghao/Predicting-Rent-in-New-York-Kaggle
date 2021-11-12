@@ -309,7 +309,7 @@ mean_price2 <- allData %>%
   group_by(neighbourhood_group_cleansed = neighbourhood_group_cleansed) %>%
   summarize(price_mean_ngc = mean(price))
 
-allData <- allData %>% merge(mean_price2, by = c("neighbourhood_group_cleansed", "neighbourhood_group_cleansed"))
+allData <- allData %>% left_join(mean_price2, by = c("neighbourhood_group_cleansed" = "neighbourhood_group_cleansed"))
 
 ## sex 
 
@@ -331,6 +331,29 @@ allData <- allData %>%
               mutate_each(funs(str_count)) %>%
               rename_all(function(x) paste0(x, "_wcount")))
 
+## lat-long 
+
+ZipCodeSourceFile = "http://download.geonames.org/export/zip/US.zip"
+tempFile <- tempfile()
+download.file(ZipCodeSourceFile , tempFile)
+ZipCodes <- read.table(unz(tempFile, "US.txt"), sep="\t")
+unlink(tempFile)
+names(ZipCodes) = c("CountryCode", "zip", "PlaceName", 
+"AdminName1", "AdminCode1", "AdminName2", "AdminCode2", 
+"AdminName3", "AdminCode3", "latitude", "longitude", "accuracy") 
+ZipCodes <- ZipCodes %>% mutate(zip = as.factor(zip))
+allData <- allData %>% 
+  left_join(
+    ZipCodes %>% 
+      select(c(zip, 
+               PlaceName, 
+               AdminName2, 
+               latitude, 
+               longitude)), by = c("zipcode"="zip")
+  )
+
+allData <- allData %>% mutate(PlaceName = PlaceName %>% as.factor(), 
+                              AdminName2 = AdminName2 %>% as.factor())
 
 ##### process host verification and amenities 
 
@@ -502,11 +525,11 @@ testData <- allData %>%
     filter(price == -1) %>% select(-price)
 
 
-boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 1000) 
-selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
-
-trainData <- trainData %>% select(c(price, boruta_output %>% unlist()))
-testData <- testData %>% select(c(price, boruta_output %>% unlist()))
+# boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 11) 
+# selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
+# 
+# trainData <- trainData %>% select(c(price, boruta_output %>% unlist()))
+# testData <- testData %>% select(c(price, boruta_output %>% unlist()))
 
 
 
@@ -528,8 +551,8 @@ if (saveProcessedData) {
 
 ```{r}
 
-BoostTrainData <- xgb.DMatrix(model.matrix(price ~ ., data = BoostTrainData),
-                              label = as.matrix(BoostTrainData %>% select(price)))
+BoostTrainData <- xgb.DMatrix(model.matrix(price ~ ., data = trainData),
+                              label = as.matrix(trainData %>% select(price)))
 
 obj.fun <- makeSingleObjectiveFunction(
   name = "xgb_cv_bayes",
@@ -564,7 +587,7 @@ obj.fun <- makeSingleObjectiveFunction(
   par.set = makeParamSet(
     makeNumericParam("eta",                    lower = 0.005, upper = 0.36),
     makeNumericParam("gamma",                  lower = 1,     upper = 8),
-    makeIntegerParam("max_depth",              lower = 2,     upper = 15),
+    makeIntegerParam("max_depth",              lower = 2,     upper = 20),
     makeIntegerParam("min_child_weight",       lower = 1,     upper = 2000),
     makeNumericParam("subsample",              lower = 0.01,  upper = 1),
     makeNumericParam("colsample_bytree",       lower = 0.01,  upper = 1),
@@ -700,6 +723,7 @@ model <-
 
 # [mbo] 16: eta=0.00533; gamma=2.37; max_depth=12; min_child_weight=1008; subsample=0.87; colsample_bytree=0.715; max_delta_step=6.15; tweedie_variance_power=1.39 : y = 58.2 : 3483.8 secs : infill_cb
 # [mbo] 0: eta=0.0435; gamma=6.31; max_depth=12; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 426.4 secs : initdesign
+# [mbo] 0: eta=0.0435; gamma=6.31; max_depth=16; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 535.6 secs : initdesign
 
 
 # xgb_train_rmse <- NULL
