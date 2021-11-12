@@ -289,6 +289,8 @@ allData <- allData %>% select(-c(country_code, country, state, market))
 # 
 # allData[reduceLevelCols] <- allData[reduceLevelCols] %>% mutate_all(funs(fct_lump(., prop = 0.001)))
 
+
+
 ##### Conject new columns 
 
 ## mean price 
@@ -300,7 +302,7 @@ mean_price <- allData %>%
               price_mean_c = mean(price))
 
 allData <- allData %>% merge(mean_price, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"))
-allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData$price_mean_c, na.rm = TRUE)
+# allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData[price > -1, ]$price_mean_c, na.rm = TRUE)
 
 mean_price2 <- allData %>% 
   filter(price > -1) %>% 
@@ -500,8 +502,8 @@ testData <- allData %>%
     filter(price == -1) %>% select(-price)
 
 
-boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 1000)  %>% 
-  getSelectedAttributes(withTentative = TRUE)
+boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 1000) 
+selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
 
 trainData <- trainData %>% select(c(price, boruta_output %>% unlist()))
 testData <- testData %>% select(c(price, boruta_output %>% unlist()))
