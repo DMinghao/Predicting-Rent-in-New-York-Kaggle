@@ -302,7 +302,7 @@ mean_price <- allData %>%
               price_mean_c = mean(price))
 
 allData <- allData %>% left_join(mean_price, by = c("neighbourhood_cleansed" = "neighbourhood_cleansed"))
-allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData[price > -1, ]$price_mean_c, na.rm = TRUE)
+allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData["price" > -1, ]$price_mean_c, na.rm = TRUE)
 
 mean_price2 <- allData %>% 
   filter(price > -1) %>% 
@@ -697,97 +697,41 @@ model <-
 
 # [mbo] 0: eta=0.0435; gamma=6.31; max_depth=12; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 58.3 : 415.4 secs : initdesign
 # [mbo] 8: eta=0.0099; gamma=1.18; max_depth=11; min_child_weight=761; subsample=0.707; colsample_bytree=0.637; max_delta_step=6.46; tweedie_variance_power=1.56 : y = 58.2 : 2351.0 secs : infill_cb
-### $eta
-### [1] 0.00990123
-### 
-### $gamma
-### [1] 1.183968
-### 
-### $max_depth
-### [1] 11
-### 
-### $min_child_weight
-### [1] 761
-### 
-### $subsample
-### [1] 0.7069801
-### 
-### $colsample_bytree
-### [1] 0.6367724
-### 
-### $max_delta_step
-### [1] 6.464198
-### 
-### $tweedie_variance_power
-### [1] 1.562195
-
 # [mbo] 16: eta=0.00533; gamma=2.37; max_depth=12; min_child_weight=1008; subsample=0.87; colsample_bytree=0.715; max_delta_step=6.15; tweedie_variance_power=1.39 : y = 58.2 : 3483.8 secs : infill_cb
 # [mbo] 0: eta=0.0435; gamma=6.31; max_depth=12; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 426.4 secs : initdesign
 # [mbo] 0: eta=0.0435; gamma=6.31; max_depth=16; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 535.6 secs : initdesign
 # [mbo] 10: eta=0.0058; gamma=1.02; max_depth=15; min_child_weight=876; subsample=0.967; colsample_bytree=0.907; max_delta_step=7.52; tweedie_variance_power=1.63 : y = 57.7 : 7994.0 secs : infill_cb
 # [mbo] 39: eta=0.00667; gamma=5.66; max_depth=16; min_child_weight=1721; subsample=0.934; colsample_bytree=0.652; max_delta_step=4.01; tweedie_variance_power=1.5 : y = 57.6 : 5539.5 secs : infill_cb
-
-
-# xgb_train_rmse <- NULL
-# xgb_test_rmse <- NULL
-# round <- NULL
-#
-# hyper_grid <- expand.grid(max_depth = seq(3, 10, 1), eta = seq(.02, .36, .02), gamma = seq(0, 6, 1))
-#
-# for(j in 1:nrow(hyper_grid)) {
-#   set.seed(seed)
-#   m_xgb_untuned <- xgb.cv(
-#     data = BoostTrainData,
-#     nrounds = 2000,
-#     objective = "reg:squarederror",
-#     early_stopping_rounds = 3,
-#     nfold = 10,
-#     max_depth = hyper_grid$max_depth[j],
-#     eta = hyper_grid$eta[j],
-#     gamma = hyper_grid$gamma[j],
-#     verbose = F
-#   )
-#
-#   temp_train_rmse <- m_xgb_untuned$evaluation_log$train_rmse_mean[m_xgb_untuned$best_iteration]
-#   temp_test_rmse <- m_xgb_untuned$evaluation_log$test_rmse_mean[m_xgb_untuned$best_iteration]
-#
-#   cat(j,"\n")
-#   cat(hyper_grid$max_depth[j],"\t")
-#   cat(hyper_grid$eta[j],"\n")
-#   cat(m_xgb_untuned$best_iteration,"\t")
-#   cat(temp_train_rmse,"\t")
-#   cat(temp_test_rmse,"\n")
-#
-#   xgb_train_rmse[j] <- temp_train_rmse
-#   xgb_test_rmse[j] <- temp_test_rmse
-#   round[j] <- m_xgb_untuned$best_iteration
-#
-#
-#   # c(temp_train_rmse, temp_test_rmse)
-# }
-#
-#
-#
-# set.seed(seed)
-# model <-
-#   xgboost(
-#     data = BoostTrainData %>% select(-price) %>% as.matrix(),
-#     label = BoostTrainData %>% select(price) %>% as.matrix(),
-#     nrounds = round[which.min(xgb_test_rmse)],
-#     objective = "reg:squarederror",
-#     early_stopping_rounds = 3,
-#     max_depth = hyper_grid[which.min(xgb_test_rmse),]$max_depth,
-#     gamma = hyper_grid[which.min(xgb_test_rmse),]$gamma,
-#     eta = hyper_grid[which.min(xgb_test_rmse),]$eta
-#   )
-
+# $eta
+# [1] 0.006673866
+# 
+# $gamma
+# [1] 5.657843
+# 
+# $max_depth
+# [1] 16
+# 
+# $min_child_weight
+# [1] 1721
+# 
+# $subsample
+# [1] 0.9337568
+# 
+# $colsample_bytree
+# [1] 0.6524519
+# 
+# $max_delta_step
+# [1] 4.010262
+# 
+# $tweedie_variance_power
+# [1] 1.501036
 
 summary(model)
 
 # xgb.importance(model)
 
 pred <-
-  predict(model, model.matrix(price~., testData %>% select(!is.character) %>% mutate(price = -1)) %>% xgb.DMatrix())
+  predict(model, model.matrix(price~., testData %>% mutate(price = -1)) %>% xgb.DMatrix())
 
 writeSubmit(pred)
 
