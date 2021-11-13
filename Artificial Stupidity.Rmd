@@ -301,8 +301,8 @@ mean_price <- allData %>%
     summarize(record_count_c = n(), 
               price_mean_c = mean(price))
 
-allData <- allData %>% merge(mean_price, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"))
-# allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData[price > -1, ]$price_mean_c, na.rm = TRUE)
+allData <- allData %>% left_join(mean_price, by = c("neighbourhood_cleansed" = "neighbourhood_cleansed"))
+allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData[price > -1, ]$price_mean_c, na.rm = TRUE)
 
 mean_price2 <- allData %>% 
   filter(price > -1) %>% 
@@ -482,8 +482,8 @@ facCols <- allData %>% select(is.factor) %>% colnames()
 boolCols <- allData %>% select(is.logical) %>% colnames()
 
 allData[numCols] <- allData[numCols] %>% 
-  mutate_at(vars(-price), funs(scale)) %>%  
-  replace(is.na(.),0) 
+  replace(is.na(.),0) %>% 
+  mutate_at(vars(-price), funs(scale))
 
 allData[facCols] <- allData[facCols] %>%
   mutate_all(funs(as.numeric(.)-1))
@@ -656,19 +656,19 @@ runs <-
 
 plot(runs$run)
 
-# best.params <- runs$run$x
-best.params <- list(
-        eta                    = 0.0435,
-        max_depth              = 12,
-        min_child_weight       = 1626,
-        gamma                  = 2.37,
-        subsample              = 0.714,
-        colsample_bytree       = 0.439,
-        max_delta_step         = 2.02,
-        tweedie_variance_power = 1.29,
-        objective = 'reg:tweedie',
-        eval_metric = 'rmse'
-      )
+best.params <- runs$run$x
+# best.params <- list(
+#         eta                    = 0.0435,
+#         max_depth              = 12,
+#         min_child_weight       = 1626,
+#         gamma                  = 2.37,
+#         subsample              = 0.714,
+#         colsample_bytree       = 0.439,
+#         max_delta_step         = 2.02,
+#         tweedie_variance_power = 1.29,
+#         objective = 'reg:tweedie',
+#         eval_metric = 'rmse'
+#       )
 
 set.seed(seed)
 optimal.cv <- xgb.cv(
