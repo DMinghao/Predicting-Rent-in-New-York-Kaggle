@@ -741,10 +741,9 @@ writeSubmit(pred)
 
 
 ```{r}
-NetTrainData <- trainData %>% select(!is.character)
 
-NetTrainX <- NetTrainData %>% select(-price) %>% as.matrix() 
-NetTrainY <- NetTrainData %>% select(price) %>% as.matrix()
+NetTrainX <- trainData %>% select(-price) %>% as.matrix() 
+NetTrainY <- trainData %>% select(price) %>% as.matrix()
 
 rmse <- function(y, y_hat){
   sqrt(mean((y - y_hat)^2))
