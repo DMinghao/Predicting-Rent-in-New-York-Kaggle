@@ -724,6 +724,8 @@ model <-
 # [mbo] 16: eta=0.00533; gamma=2.37; max_depth=12; min_child_weight=1008; subsample=0.87; colsample_bytree=0.715; max_delta_step=6.15; tweedie_variance_power=1.39 : y = 58.2 : 3483.8 secs : infill_cb
 # [mbo] 0: eta=0.0435; gamma=6.31; max_depth=12; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 426.4 secs : initdesign
 # [mbo] 0: eta=0.0435; gamma=6.31; max_depth=16; min_child_weight=1626; subsample=0.714; colsample_bytree=0.439; max_delta_step=2.02; tweedie_variance_power=1.29 : y = 57.8 : 535.6 secs : initdesign
+# [mbo] 10: eta=0.0058; gamma=1.02; max_depth=15; min_child_weight=876; subsample=0.967; colsample_bytree=0.907; max_delta_step=7.52; tweedie_variance_power=1.63 : y = 57.7 : 7994.0 secs : infill_cb
+# [mbo] 39: eta=0.00667; gamma=5.66; max_depth=16; min_child_weight=1721; subsample=0.934; colsample_bytree=0.652; max_delta_step=4.01; tweedie_variance_power=1.5 : y = 57.6 : 5539.5 secs : infill_cb
 
 
 # xgb_train_rmse <- NULL
