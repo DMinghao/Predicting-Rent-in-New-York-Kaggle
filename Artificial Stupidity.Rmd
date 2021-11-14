@@ -65,7 +65,8 @@ pkg_list <- c(
   "mice", 
   "parallel", 
   "forcats", 
-  "Boruta")
+  "Boruta", 
+  "textfeatures")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -311,6 +312,14 @@ mean_price2 <- allData %>%
 
 allData <- allData %>% left_join(mean_price2, by = c("neighbourhood_group_cleansed" = "neighbourhood_group_cleansed"))
 
+mean_price3 <- allData %>% 
+  filter(price > -1) %>% 
+  group_by(zipcode = zipcode) %>%
+  summarize(price_mean_zip = mean(price))
+
+allData <- allData %>% left_join(mean_price3, by = c("zipcode" = "zipcode"))
+allData[is.na(allData$price_mean_zip),]$price_mean_zip = mean(allData["price" > -1, ]$price_mean_zip, na.rm = TRUE)
+
 ## sex 
 
 allData %>% select(host_name) %>% c() -> names 
@@ -320,16 +329,6 @@ allData <- allData %>%
               distinct() %>%
               select(c(name, proportion_male, proportion_female)),
             by = c("host_name" = "name"))
-
-
-## word count 
-
-allData[longCharCols] <- allData[longCharCols] %>% replace(is.na(.), "")
-
-allData <- allData %>%
-  bind_cols(allData[longCharCols] %>%
-              mutate_each(funs(str_count)) %>%
-              rename_all(function(x) paste0(x, "_wcount")))
 
 ## lat-long 
 
@@ -440,9 +439,22 @@ prep_fun <- function(x) {
       lemmatize_strings()
   }
 
+allData[longCharCols] <- allData[longCharCols] %>% replace(is.na(.), "")
+
+# allData <- allData %>%
+#   bind_cols(allData[longCharCols] %>%
+#               mutate_each(funs(str_count)) %>%
+#               rename_all(function(x) paste0(x, "_wcount")))
+
+allText <- NULL
+
+for(col in longCharCols) allText <- paste(allText, " ", allData[[col]])
+
+allData <- allData %>% bind_cols(textfeatures(allText))
+
 # allData[longCharCols] <- allData[longCharCols] %>%
 #   mutate_all(funs(prep_fun(.))) %>%
-#   replace(is.na(.), "") 
+#   replace(is.na(.), "")
 
 # textColsAgg <- allData[longCharCols] %>%
 #   mutate_all(funs(prep_fun(.))) %>%
@@ -517,19 +529,23 @@ trainData <- allData %>%
     select(!is.character) %>% 
     # add_column(ID = extractID$id) %>%
     # relocate(ID) %>%
-    filter(price > -1)
+    filter(price > -1) 
 testData <- allData %>%
     select(!is.character) %>% 
     # add_column(ID = extractID$id) %>%
     # relocate(ID) %>%
     filter(price == -1) %>% select(-price)
 
+### feature selection
 
-# boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 11) 
+# selectFeatures <- trainData %>% head(5000)
+# 
+# 
+# boruta_output <- Boruta(price ~ ., data=selectFeatures, pValue = 0.05, maxRuns = 100, doTrace = 2)
 # selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
 # 
-# trainData <- trainData %>% select(c(price, boruta_output %>% unlist()))
-# testData <- testData %>% select(c(price, boruta_output %>% unlist()))
+# trainData <- trainData %>% select(c(price, selectedCols))
+# testData <- testData %>% select(selectedCols)
 
 
 

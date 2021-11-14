@@ -41,3 +41,5 @@ submission.csv
 processedTestData.csv
 processedTrainData.csv
 *.docx
+AWS-EC2-Windows-DS.pem
+ec2-3-227-245-244.compute-1.amazonaws.com.rdp
