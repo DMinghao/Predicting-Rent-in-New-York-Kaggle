@@ -66,7 +66,8 @@ pkg_list <- c(
   "parallel", 
   "forcats", 
   "Boruta", 
-  "textfeatures")
+  "textfeatures", 
+  "cluster")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -471,11 +472,7 @@ allData <- allData %>% bind_cols(textfeatures(allText))
 ## TODO: generate new numeric cols for long text cols 
 ## TODO: transform long text cols to numeric value 
 ```
-
-
-
 ```{r}
-
 copyData <- allData
 
 allData <- allData %>% cbind( copyData %>% 
@@ -513,7 +510,51 @@ remove0var <- function(dat) {
 
 allData <- allData %>% remove0var() 
 
+```
 
+
+```{r}
+beforeCluster <- allData 
+
+allData <- beforeCluster %>% 
+  # head(10000) %>% 
+  select(!is.character)
+
+# distance = dist(allData %>% select(-price))
+# 
+# mydata.hclust = hclust(distance)
+# plot(mydata.hclust)
+# plot(mydata.hclust,labels=allData$price,main='Default from hclust')
+# plot(mydata.hclust,hang=-1, labels=allData$price,main='Default from hclust')
+# 
+# mydata.hclust<-hclust(distance,method="average") 
+# plot(mydata.hclust,hang=-1) 
+# 
+# member = cutree(mydata.hclust,3)
+# table(member)
+# 
+# aggregate(allData %>% select(!is.character) %>% select(-price),list(member),mean)
+# plot(silhouette(cutree(mydata.hclust,3), distance))
+
+
+wss <- (nrow(allData)-1)*sum(apply(allData,2,var))
+for (i in 2:20) {
+  print(i)
+  wss[i] <- sum(kmeans(allData, centers=i)$withinss)
+  }
+plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares")
+
+
+kc <- kmeans(allData, centers=15)
+
+beforeCluster %>% mutate(cluster = kc$cluster %>% as.factor()) -> afterCluster
+
+afterCluster %>% select(c(price, cluster)) %>% ggplot(aes(x = price, color = cluster)) + geom_density()
+```
+
+
+
+```{r}
 # 
 # 
 # priceTemp <- allData %>% select(price)
@@ -664,9 +705,9 @@ do_bayes <-
 
 runs <-
   do_bayes(
-    n_design = 20,
+    n_design = 5,
     of = obj.fun,
-    opt_steps = 50,
+    opt_steps = 25,
     seed = seed
   )
 
