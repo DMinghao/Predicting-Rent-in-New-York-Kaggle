@@ -475,16 +475,16 @@ allData <- allData %>% bind_cols(textfeatures(allText))
 ```{r}
 copyData <- allData
 
-allData <- allData %>% cbind( copyData %>% 
-  select(where(is.numeric)) %>% 
-  select(-price) %>% 
-  mutate_all(function(x) x^2) %>% 
-  setNames(paste0(names(.), "_2pow")))
-allData <- allData %>% cbind( copyData %>% 
-  select(where(is.numeric)) %>% 
-  select(-price) %>% 
-  mutate_all(function(x) x^3) %>% 
-  setNames(paste0(names(.), "_3pow")))
+# allData <- allData %>% cbind( copyData %>% 
+#   select(where(is.numeric)) %>% 
+#   select(-price) %>% 
+#   mutate_all(function(x) x^2) %>% 
+#   setNames(paste0(names(.), "_2pow")))
+# allData <- allData %>% cbind( copyData %>% 
+#   select(where(is.numeric)) %>% 
+#   select(-price) %>% 
+#   mutate_all(function(x) x^3) %>% 
+#   setNames(paste0(names(.), "_3pow")))
 
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
@@ -520,7 +520,7 @@ allData <- beforeCluster %>%
   # head(10000) %>% 
   select(!is.character)
 
-# distance = dist(allData %>% select(-price))
+# distance = dist(allData )
 # 
 # mydata.hclust = hclust(distance)
 # plot(mydata.hclust)
@@ -539,19 +539,28 @@ allData <- beforeCluster %>%
 
 wss <- (nrow(allData)-1)*sum(apply(allData,2,var))
 for (i in 2:20) {
+  set.seed(seed)
   print(i)
-  wss[i] <- sum(kmeans(allData, centers=i)$withinss)
+  clu <- kmeans(allData %>% select(-price), centers=i)
+  wss[i] <- sum(clu$withinss) 
+  # p <- allData %>% 
+  #   select(price) %>% 
+  #   mutate(cluster = clu$cluster %>% as.factor()) %>% 
+  #   ggplot(aes(x = price, color = cluster)) + geom_density()
+  # p %>% ggplotly() %>% print()
   }
-plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares")
+plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares") %>% ggplotly()
 
-
+set.seed(seed)
 kc <- kmeans(allData, centers=15)
 
 beforeCluster %>% mutate(cluster = kc$cluster %>% as.factor()) -> afterCluster
 
-afterCluster %>% select(c(price, cluster)) %>% ggplot(aes(x = price, color = cluster)) + geom_density()
-```
+pp <- afterCluster %>% select(c(price, cluster)) %>% ggplot(aes(x = price, color = cluster)) + geom_density()
+pp %>% ggplotly()
 
+allData <- afterCluster
+```
 
 
 ```{r}
@@ -604,7 +613,32 @@ if (saveProcessedData) {
 
 ```
 
+```{r eval=FALSE}
+set.seed(seed)
+knnTrain <- trainData %>% head(5000)
 
+ctrl <- trainControl(
+  method = "cv",
+  number = 10,
+  verboseIter = TRUE
+)
+
+tuneGrid <- expand.grid(
+  k = seq(5, 20, by = 1)
+)
+
+modelKNN <- caret::train(
+  price ~ .,
+  data = knnTrain,
+  method = 'knn',
+  # preProcess = c("center", "scale"),
+  trControl = ctrl,
+  tuneGrid = tuneGrid, 
+  verbose = TRUE
+)
+
+modelKNN
+```
 
 ```{r}
 
@@ -707,7 +741,7 @@ runs <-
   do_bayes(
     n_design = 5,
     of = obj.fun,
-    opt_steps = 25,
+    opt_steps = 20,
     seed = seed
   )
 
