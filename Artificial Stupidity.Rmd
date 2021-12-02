@@ -1,7 +1,7 @@
 ---
 title: "Artificial Stupidity"
 author: "Minghao Du"
-date: "10/22/2021"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -9,34 +9,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+## Initiating R Environment 
+
+```{r echo=FALSE}
 rm(list = ls())
 gc()
 
-load_pkgs <-
-  function(packages = c(),
-           basic.packages = c(
-             "package:stats",
-             "package:graphics",
-             "package:grDevices",
-             "package:utils",
-             "package:datasets",
-             "package:methods",
-             "package:base"
-           )) {
-    package.list <-
-      search()[ifelse(unlist(gregexpr("package:", search())) == 1, TRUE, FALSE)]
-    package.list <- setdiff(package.list, basic.packages)
-    if (length(package.list) > 0)
-      for (package in package.list)
-        detach(package, character.only = TRUE)
-    installed_packages <- packages %in% rownames(installed.packages())
-    if (any(installed_packages == FALSE)) {
-      install.packages(packages[!installed_packages], dependencies = T)
-    }
-    invisible(lapply(packages, library, character.only = TRUE))
-  }
-
+downloader::source_url("https://raw.githubusercontent.com/DMinghao/Analysis_Pocketknife/main/R/init_env.R", downloader::sha_url("https://raw.githubusercontent.com/DMinghao/Analysis_Pocketknife/main/R/init_env.R"))
 
 pkg_list <- c(
   "plotly", 
@@ -68,20 +47,20 @@ pkg_list <- c(
   "Boruta", 
   "textfeatures", 
   "cluster", 
-  "rFerns")
+  "fpc", 
+  "dbscan", 
+  "GGally")
 load_pkgs(pkg_list)
 
-# install_miniconda()
-# https://www.tensorflow.org/install/source_windows 
-# https://www.tensorflow.org/install/gpu#hardware_requirements 
-# https://docs.anaconda.com/anaconda/user-guide/tasks/tensorflow 
-# conda_create(envname = "r-reticulate", packages = "tensorflow-gpu", python_version = "3.9")
+load_helper_func()
+load_tf_gpu_env()
+
 seed <- 123
 saveProcessedData <- F
 cores <- detectCores() - 1
-'%!in%' <- function(x,y)!('%in%'(x,y))
-use_condaenv("r-reticulate")
 ```
+
+## Read Provided Data
 
 ```{r}
 writeSubmit <- function(pred) {
@@ -92,6 +71,12 @@ writeSubmit <- function(pred) {
 rawData <- read_csv('./input/rentlala2021/analysisData.csv')
 
 scoringData <- read_csv('./input/rentlala2021/scoringData.csv')
+
+```
+
+### Correcting column data type 
+
+```{r}
 
 compare_df_cols(rawData, scoringData) %>%
   filter(rawData != scoringData |
@@ -104,19 +89,29 @@ compare_df_cols(rawData, scoringData) %>%
   filter(rawData != scoringData | rawData %>% is.na() | scoringData %>% is.na())
 ```
 
-
+### Merging scoring data and training data 
 
 ```{r}
 
 pricedScoringData <- scoringData %>% mutate(price = -1)
 
 allData <- rawData %>% bind_rows(pricedScoringData) 
+```
 
 
+## Pre-Processing Data
+
+
+### Grouping Columns with Same Data Type 
+
+```{r}
+
+# Extract ID column 
 extractID <- allData %>% select(id)
 
 allData <- allData %>% select(-id)
 
+# Put similar columns into baskets 
 numericCols <- allData %>% select(is.numeric) %>% colnames()
 boolCols <- allData %>% select(is.logical) %>% colnames()
 dateCols <- allData %>% select(is.Date) %>% colnames()
@@ -165,29 +160,16 @@ rateCols <- allData %>%
   select(c(host_response_rate, host_acceptance_rate)) %>% 
   colnames()
 
-
-tempCopy <- allData
+# Encode all text columns to UTF-8 
+allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
 
 ```
 
+### Data Wrangling and Cleaning 
 
+#### Zip code column 
 
 ```{r}
-
-allData<- tempCopy
-
-## TODO: handle outliers 
-## TODO: create mean price cols for different factors 
-## TODO: reconsider factor reduction 
-## TODO: reconsider impute data 
-## TODO: 
-
-
-allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
-
-
-##### Process zipcode column 
-
 mostCommonZip <- allData %>% 
   select(c(neighbourhood_cleansed, neighbourhood_group_cleansed, city, zipcode)) %>% 
   group_by(neighbourhood_cleansed, zipcode) %>% 
@@ -201,9 +183,11 @@ getZip <- function(neighbourhood_cleansed){
 
 allData <- allData %>% mutate(zipcode = ifelse(is.na(zipcode), getZip(neighbourhood_cleansed), zipcode)) %>% mutate(zipcode = zipcode %>% as.factor())
 
+```
 
+#### Rate columns 
 
-##### Converte rate cols to rates 
+```{r}
 
 allData[rateCols] <- allData[rateCols] %>% 
   mutate(host_response_rate = gsub("N/A","0%", host_response_rate)) %>% 
@@ -213,18 +197,11 @@ allData[rateCols] <- allData[rateCols] %>%
   mutate_all(as.numeric) %>% 
   mutate_each(funs(./100)) %>% 
   replace(is.na(.),0)
+```
 
+#### Handle non-char columns NA value  
 
-temp <- allData
-
-
-##### Handle/impute NA value for bool and numeric columns
-
-allData <- temp
-
-# allData %>% ggplot(aes(weekly_price)) + geom_density()
-# allData %>% ggplot(aes(monthly_price)) + geom_density()
-
+```{r}
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
 
 reservedNumCols <- allData %>% select(c(square_feet, weekly_price, monthly_price)) %>% colnames()
@@ -236,128 +213,26 @@ allData <- allData %>% mutate(square_feet = ifelse(is.na(square_feet), 0, square
 allData <- allData %>% mutate(weekly_price = ifelse(is.na(weekly_price), 0, weekly_price))
 allData <- allData %>% mutate(monthly_price = ifelse(is.na(monthly_price), 0, monthly_price))
 
+```
 
-# allData <- allData %>% mutate(square_feet = ifelse(square_feet == 0, NA, square_feet))
-# allData <- allData %>% mutate(weekly_price = ifelse(weekly_price == 0, NA, weekly_price))
-# allData <- allData %>% mutate(monthly_price = ifelse(monthly_price == 0, NA, monthly_price))
-# 
-# impute <- allData %>% select(-price) %>% select(where(is.numeric)) %>% colnames()
-# tempData <-
-#   parlmice(
-#     data = allData[impute],
-#     m = ncol(allData[impute]),
-#     # n.core = cores,
-#     # n.imp.core = ncol(allData[impute]),
-#     cluster.seed = seed,
-#     # seed = seed,
-#     maxit = 100,
-#     method = "rf",
-#     print = FALSE
-#   )
-# 
-# allData[impute] <- complete(tempData)
+#### Factor columns 
 
-# allData %>% ggplot(aes(weekly_price)) + geom_density()
-# allData %>% ggplot(aes(monthly_price)) + geom_density()
+```{r}
 
-
-
-temp <- allData
-
-
-##### Process factor columns 
-
-allData <- temp
-
-# allData <- allData %>% select(-factorCharCols) %>%
-#   add_column(allData[factorCharCols] %>%
-#   replace(is.na(.),"N/A") %>%
-#   dummy_cols(select_columns = factorCharCols, remove_selected_columns = T) %>%
-#   clean_names())
-#   %>%
-#   select_if(~sum(.) != 1))
-  
 allData[factorCharCols] <- allData[factorCharCols] %>%
   replace(is.na(.), "N/A") %>%
   mutate_all(as.factor)
 
-## allData <- allData %>% select(-c(host_location, host_neighbourhood, country_code, smart_location, city, street, country, state, market)) 
-
-## reduceLevelCols <- allData %>% select(c(neighbourhood_cleansed, property_type, zipcode)) %>% colnames()
-
-
+# Exclude 1 level factor columns 
 allData <- allData %>% select(-c(country_code, country, state, market)) 
 
-# reduceLevelCols <- allData %>% select(c(host_location, host_neighbourhood, street, neighbourhood_cleansed, city, smart_location, property_type, zipcode)) %>% colnames()
-# 
-# allData[reduceLevelCols] <- allData[reduceLevelCols] %>% mutate_all(funs(fct_lump(., prop = 0.001)))
+```
 
+#### Host verification and amenities 
 
+```{r}
 
-##### Conject new columns 
-
-## mean price 
-
-mean_price <- allData %>% 
-  filter(price > -1) %>% 
-  group_by(neighbourhood_cleansed = neighbourhood_cleansed) %>%
-    summarize(record_count_c = n(), 
-              price_mean_c = mean(price))
-
-allData <- allData %>% left_join(mean_price, by = c("neighbourhood_cleansed" = "neighbourhood_cleansed"))
-allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData["price" > -1, ]$price_mean_c, na.rm = TRUE)
-
-mean_price2 <- allData %>% 
-  filter(price > -1) %>% 
-  group_by(neighbourhood_group_cleansed = neighbourhood_group_cleansed) %>%
-  summarize(price_mean_ngc = mean(price))
-
-allData <- allData %>% left_join(mean_price2, by = c("neighbourhood_group_cleansed" = "neighbourhood_group_cleansed"))
-
-mean_price3 <- allData %>% 
-  filter(price > -1) %>% 
-  group_by(zipcode = zipcode) %>%
-  summarize(price_mean_zip = mean(price))
-
-allData <- allData %>% left_join(mean_price3, by = c("zipcode" = "zipcode"))
-allData[is.na(allData$price_mean_zip),]$price_mean_zip = mean(allData["price" > -1, ]$price_mean_zip, na.rm = TRUE)
-
-## sex 
-
-allData %>% select(host_name) %>% c() -> names 
-
-allData <- allData %>%
-  left_join(gender(names$host_name) %>%
-              distinct() %>%
-              select(c(name, proportion_male, proportion_female)),
-            by = c("host_name" = "name"))
-
-## lat-long 
-
-ZipCodeSourceFile = "http://download.geonames.org/export/zip/US.zip"
-tempFile <- tempfile()
-download.file(ZipCodeSourceFile , tempFile)
-ZipCodes <- read.table(unz(tempFile, "US.txt"), sep="\t")
-unlink(tempFile)
-names(ZipCodes) = c("CountryCode", "zip", "PlaceName", 
-"AdminName1", "AdminCode1", "AdminName2", "AdminCode2", 
-"AdminName3", "AdminCode3", "latitude", "longitude", "accuracy") 
-ZipCodes <- ZipCodes %>% mutate(zip = as.factor(zip))
-allData <- allData %>% 
-  left_join(
-    ZipCodes %>% 
-      select(c(zip, 
-               PlaceName, 
-               AdminName2, 
-               latitude, 
-               longitude)), by = c("zipcode"="zip")
-  )
-
-allData <- allData %>% mutate(PlaceName = PlaceName %>% as.factor(), 
-                              AdminName2 = AdminName2 %>% as.factor())
-
-##### process host verification and amenities 
-
+# Create verification count column 
 allData <- allData %>% 
   mutate(host_verifications = gsub("\\[|\\]|\\'|\\,", "", host_verifications)) %>% 
   mutate(vari_count = strsplit(host_verifications, " ") %>% lengths())
@@ -367,13 +242,11 @@ vari_list <- allData %>%
   lapply(function(x) unique(trimws(unlist(strsplit(x, " ")))))
 
 for(w in 1:length(vari_list[[1]])) {
-  # print(vari_list[[1]][w])
   new <- grepl(pattern = vari_list[[1]][w], x = allData$host_verifications, fixed = TRUE)
   allData[paste(vari_list[[1]][w], "_vari")] <- new
 }
 
-allData <- allData %>% select(-host_verifications)
-
+# Create amenities count column 
 allData <- allData %>% 
   mutate(amenities_count = strsplit(amenities, ",") %>% lengths()) 
 
@@ -387,11 +260,14 @@ for(w in 1:length(amen_list[[1]])) {
   allData[paste(amen_list[[1]][w], "_amen")] <- new
 }
 
-allData <- allData %>% select(-amenities) %>% clean_names()
+# discard original column 
+allData <- allData %>% select(-c(amenities, host_verifications)) %>% clean_names()
 
+```
 
-##### process text duration columns 
+#### Duration columns
 
+```{r}
 allData <- allData %>%
   mutate(host_response_time = gsub("within a ", "", host_response_time)) %>%
   mutate(host_response_time = gsub("within an ", "", host_response_time)) %>%
@@ -418,63 +294,104 @@ allData <- allData %>%
   )) %>% 
   mutate(calendar_updated = as.numeric(calendar_updated))
 
+```
 
-##### process date columns 
+#### Date columns 
+
+```{r}
 
 allData[dateCols] <- allData %>% 
   select(dateCols) %>% 
   mutate_all(funs(max(., na.rm = TRUE) - .)) %>% 
   mutate_all(as.numeric)
 
+```
 
 
-##### Text mining 
+### Feature Engneering
 
-prep_fun <- function(x) {
-    x %>%
-      str_to_lower() %>%
-      str_replace_all("[^[:alnum:]]", " ") %>%
-      {gsub(patter = "\\d", replace = " ", .)} %>%
-      removeWords(stopwords()) %>%
-      {gsub(patter = "\\b[A-z]\\b{1}", replace = " ", .)} %>%
-      str_replace_all("\\s+", " ") %>%
-      lemmatize_strings()
-  }
+#### Mean price for areas 
 
+```{r}
+mean_price <- allData %>% 
+  filter(price > -1) %>% 
+  group_by(neighbourhood_cleansed = neighbourhood_cleansed) %>%
+    summarize(record_count_c = n(), 
+              price_mean_c = mean(price))
+
+allData <- allData %>% left_join(mean_price, by = c("neighbourhood_cleansed" = "neighbourhood_cleansed"))
+allData[is.na(allData$price_mean_c),]$price_mean_c = mean(allData["price" > -1, ]$price_mean_c, na.rm = TRUE)
+
+mean_price2 <- allData %>% 
+  filter(price > -1) %>% 
+  group_by(neighbourhood_group_cleansed = neighbourhood_group_cleansed) %>%
+  summarize(price_mean_ngc = mean(price))
+
+allData <- allData %>% left_join(mean_price2, by = c("neighbourhood_group_cleansed" = "neighbourhood_group_cleansed"))
+
+mean_price3 <- allData %>% 
+  filter(price > -1) %>% 
+  group_by(zipcode = zipcode) %>%
+  summarize(price_mean_zip = mean(price))
+
+allData <- allData %>% left_join(mean_price3, by = c("zipcode" = "zipcode"))
+allData[is.na(allData$price_mean_zip),]$price_mean_zip = mean(allData["price" > -1, ]$price_mean_zip, na.rm = TRUE)
+```
+
+#### Host Gender
+
+```{r}
+allData %>% select(host_name) %>% c() -> names 
+
+allData <- allData %>%
+  left_join(gender(names$host_name) %>%
+              distinct() %>%
+              select(c(name, proportion_male, proportion_female)),
+            by = c("host_name" = "name"))
+
+```
+
+#### Zip code coordinate
+
+```{r}
+ZipCodeSourceFile = "http://download.geonames.org/export/zip/US.zip"
+tempFile <- tempfile()
+download.file(ZipCodeSourceFile , tempFile)
+ZipCodes <- read.table(unz(tempFile, "US.txt"), sep="\t")
+unlink(tempFile)
+names(ZipCodes) = c("CountryCode", "zip", "PlaceName", 
+"AdminName1", "AdminCode1", "AdminName2", "AdminCode2", 
+"AdminName3", "AdminCode3", "latitude", "longitude", "accuracy") 
+ZipCodes <- ZipCodes %>% mutate(zip = as.factor(zip))
+allData <- allData %>% 
+  left_join(
+    ZipCodes %>% 
+      select(c(zip, 
+               PlaceName, 
+               AdminName2, 
+               latitude, 
+               longitude)), by = c("zipcode"="zip")
+  )
+
+allData <- allData %>% mutate(PlaceName = PlaceName %>% as.factor(), 
+                              AdminName2 = AdminName2 %>% as.factor())
+
+```
+
+#### Text mining 
+
+```{r}
 allData[longCharCols] <- allData[longCharCols] %>% replace(is.na(.), "")
 
-# allData <- allData %>%
-#   bind_cols(allData[longCharCols] %>%
-#               mutate_each(funs(str_count)) %>%
-#               rename_all(function(x) paste0(x, "_wcount")))
-
 allText <- NULL
-
 for(col in longCharCols) allText <- paste(allText, " ", allData[[col]])
 
 tex_feat <- textfeatures(allText)
-
 allData <- allData %>% bind_cols(tex_feat)
-
-# allData[longCharCols] <- allData[longCharCols] %>%
-#   mutate_all(funs(prep_fun(.))) %>%
-#   replace(is.na(.), "")
-
-# textColsAgg <- allData[longCharCols] %>%
-#   mutate_all(funs(prep_fun(.))) %>%
-#   replace(is.na(.), "") %>%
-#   unite(allText) %>%
-#   add_column(ID = extractID$id) %>%
-#   relocate(ID)
-# 
-# stemmedText <- textColsAgg %>%
-#   unnest_tokens(input = allText, output = word) %>%
-#   anti_join(stop_words)
-
-
-## TODO: generate new numeric cols for long text cols 
-## TODO: transform long text cols to numeric value 
 ```
+
+#### Create 2 and 3 power columns 
+
 ```{r}
 copyData <- allData
 
@@ -488,7 +405,11 @@ allData <- allData %>% cbind( copyData %>%
   select(-price) %>%
   mutate_all(function(x) x^3) %>%
   setNames(paste0(names(.), "_3pow")))
+```
 
+#### Scale columns 
+
+```{r}
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
 boolCols <- allData %>% select(is.logical) %>% colnames()
@@ -502,7 +423,11 @@ allData[facCols] <- allData[facCols] %>%
 
 allData[boolCols] <- allData[boolCols] %>% 
   mutate_all(funs(as.numeric(.)))
+```
 
+#### Remoce 0 variance columns 
+
+```{r}
 remove0var <- function(dat) {
     out <- lapply(dat, function(x) length(unique(x)))
     want <- which(!out > 1)
@@ -511,33 +436,19 @@ remove0var <- function(dat) {
     dat %>% select(-name)
 }
 
-allData <- allData %>% remove0var() 
-
+allData <- allData %>% remove0var() %>% remove0var() 
 ```
 
+#### Clustering Data 
 
 ```{r}
-beforeCluster <- allData 
+# corData <- cor(allData %>% select(!is.character))
+# corData %>% as_tibble() %>% rownames_to_column() %>% gather(colname, value, -rowname) %>% ggplot(aes(x = rowname, y = colname, fill = value)) + geom_tile()
 
-allData <- beforeCluster %>% 
-  # head(10000) %>% 
-  select(!is.character)
-
-# distance = dist(allData )
+# beforeCluster <- allData %>% select(!is.character)
 # 
-# mydata.hclust = hclust(distance)
-# plot(mydata.hclust)
-# plot(mydata.hclust,labels=allData$price,main='Default from hclust')
-# plot(mydata.hclust,hang=-1, labels=allData$price,main='Default from hclust')
-# 
-# mydata.hclust<-hclust(distance,method="average") 
-# plot(mydata.hclust,hang=-1) 
-# 
-# member = cutree(mydata.hclust,3)
-# table(member)
-# 
-# aggregate(allData %>% select(!is.character) %>% select(-price),list(member),mean)
-# plot(silhouette(cutree(mydata.hclust,3), distance))
+# db <- dbscan(beforeCluster %>% select(-price), eps = 50, minPts = 3)
+# db
 
 
 wss <- (nrow(allData)-1)*sum(apply(allData,2,var))
@@ -546,11 +457,6 @@ for (i in 2:20) {
   print(i)
   clu <- kmeans(allData %>% select(-price), centers=i)
   wss[i] <- sum(clu$withinss) 
-  # p <- allData %>% 
-  #   select(price) %>% 
-  #   mutate(cluster = clu$cluster %>% as.factor()) %>% 
-  #   ggplot(aes(x = price, color = cluster)) + geom_density()
-  # p %>% ggplotly() %>% print()
   }
 plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares") %>% ggplotly()
 
