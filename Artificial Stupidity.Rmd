@@ -67,7 +67,8 @@ pkg_list <- c(
   "forcats", 
   "Boruta", 
   "textfeatures", 
-  "cluster")
+  "cluster", 
+  "rFerns")
 load_pkgs(pkg_list)
 
 # install_miniconda()
@@ -451,7 +452,9 @@ allText <- NULL
 
 for(col in longCharCols) allText <- paste(allText, " ", allData[[col]])
 
-allData <- allData %>% bind_cols(textfeatures(allText))
+tex_feat <- textfeatures(allText)
+
+allData <- allData %>% bind_cols(tex_feat)
 
 # allData[longCharCols] <- allData[longCharCols] %>%
 #   mutate_all(funs(prep_fun(.))) %>%
@@ -475,16 +478,16 @@ allData <- allData %>% bind_cols(textfeatures(allText))
 ```{r}
 copyData <- allData
 
-# allData <- allData %>% cbind( copyData %>% 
-#   select(where(is.numeric)) %>% 
-#   select(-price) %>% 
-#   mutate_all(function(x) x^2) %>% 
-#   setNames(paste0(names(.), "_2pow")))
-# allData <- allData %>% cbind( copyData %>% 
-#   select(where(is.numeric)) %>% 
-#   select(-price) %>% 
-#   mutate_all(function(x) x^3) %>% 
-#   setNames(paste0(names(.), "_3pow")))
+allData <- allData %>% cbind( copyData %>%
+  select(where(is.numeric)) %>%
+  select(-price) %>%
+  mutate_all(function(x) x^2) %>%
+  setNames(paste0(names(.), "_2pow")))
+allData <- allData %>% cbind( copyData %>%
+  select(where(is.numeric)) %>%
+  select(-price) %>%
+  mutate_all(function(x) x^3) %>%
+  setNames(paste0(names(.), "_3pow")))
 
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
@@ -552,14 +555,24 @@ for (i in 2:20) {
 plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares") %>% ggplotly()
 
 set.seed(seed)
-kc <- kmeans(allData, centers=15)
+kc <- kmeans(allData, centers=50)
 
 beforeCluster %>% mutate(cluster = kc$cluster %>% as.factor()) -> afterCluster
+
+mean_price_cluster <- afterCluster %>% 
+  filter(price > -1) %>% 
+  group_by(cluster = cluster) %>%
+  summarize(price_mean_clus = mean(price))
+
+afterCluster <- afterCluster %>% left_join(mean_price_cluster, by = c("cluster" = "cluster"))
 
 pp <- afterCluster %>% select(c(price, cluster)) %>% ggplot(aes(x = price, color = cluster)) + geom_density()
 pp %>% ggplotly()
 
-allData <- afterCluster
+allData <- afterCluster %>% mutate(cluster = cluster %>% as.numeric())
+
+glimpse(allData)
+allData$place_name
 ```
 
 
@@ -588,14 +601,11 @@ testData <- allData %>%
 
 ### feature selection
 
-# selectFeatures <- trainData %>% head(5000)
-# 
-# 
-# boruta_output <- Boruta(price ~ ., data=selectFeatures, pValue = 0.05, maxRuns = 100, doTrace = 2)
-# selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
-# 
-# trainData <- trainData %>% select(c(price, selectedCols))
-# testData <- testData %>% select(selectedCols)
+boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 500, doTrace = 2, getImp= getImpXgboost)
+selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
+
+trainData <- trainData %>% select(c(price, selectedCols))
+testData <- testData %>% select(selectedCols)
 
 
 
@@ -649,6 +659,7 @@ obj.fun <- makeSingleObjectiveFunction(
   name = "xgb_cv_bayes",
   fn =   function(x) {
     set.seed(seed)
+    print(x)
     cv <- xgb.cv(
       params = list(
         # booster          = "gbtree",
@@ -656,6 +667,8 @@ obj.fun <- makeSingleObjectiveFunction(
         max_depth              = x["max_depth"],
         min_child_weight       = x["min_child_weight"],
         gamma                  = x["gamma"],
+        lambda                 = x["lambda"],
+        alpha                  = x["alpha"],
         subsample              = x["subsample"],
         colsample_bytree       = x["colsample_bytree"],
         max_delta_step         = x["max_delta_step"],
@@ -678,6 +691,8 @@ obj.fun <- makeSingleObjectiveFunction(
   par.set = makeParamSet(
     makeNumericParam("eta",                    lower = 0.005, upper = 0.36),
     makeNumericParam("gamma",                  lower = 1,     upper = 8),
+    makeNumericParam("lambda",                 lower = 1,     upper = 8),
+    makeNumericParam("alpha",                  lower = 1,     upper = 8),
     makeIntegerParam("max_depth",              lower = 2,     upper = 20),
     makeIntegerParam("min_child_weight",       lower = 1,     upper = 2000),
     makeNumericParam("subsample",              lower = 0.01,  upper = 1),
@@ -724,7 +739,7 @@ do_bayes <-
       labs(title = "mlrMBO optimization") +
       ylab("-log(likelihood)")
     
-    print(run$x)
+    # print(run$x)
     
     return(list(run = run, plot = opt_plot))
   }
@@ -739,7 +754,7 @@ do_bayes <-
 
 runs <-
   do_bayes(
-    n_design = 5,
+    n_design = 20,
     of = obj.fun,
     opt_steps = 20,
     seed = seed
@@ -748,31 +763,33 @@ runs <-
 plot(runs$run)
 
 best.params <- runs$run$x
-best.params <- list(
-        eta                    = 0.0151,
-        max_depth              = 18,
-        min_child_weight       = 948,
-        gamma                  = 1.58,
-        subsample              = 0.436,
-        colsample_bytree       = 0.829,
-        max_delta_step         = 8.47,
-        tweedie_variance_power = 1.49,
-        objective = 'reg:tweedie',
-        eval_metric = 'rmse'
-      )
+# best.params <- list(
+#         eta                    = 0.0151,
+#         max_depth              = 18,
+#         min_child_weight       = 948,
+#         gamma                  = 1.58,
+#         subsample              = 0.436,
+#         colsample_bytree       = 0.829,
+#         max_delta_step         = 8.47,
+#         tweedie_variance_power = 1.49,
+#         objective = 'reg:tweedie',
+#         eval_metric = 'rmse'
+#       )
 
 set.seed(seed)
 optimal.cv <- xgb.cv(
   params = best.params,
   data = BoostTrainData,
   nround = 7000,
-  nthread = 12,
+  nthread = cores,
   nfold =  10,
   prediction = FALSE,
   showsd = TRUE,
   early_stopping_rounds = 5,
   verbose = 1,
-  print_every_n = 100
+  print_every_n = 100, 
+  objective = 'reg:tweedie',
+  eval_metric = 'rmse'
 )
 
 set.seed(seed)
