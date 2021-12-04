@@ -2,7 +2,9 @@
 title: "Artificial Stupidity"
 author: "Minghao Du"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -425,7 +427,7 @@ allData[boolCols] <- allData[boolCols] %>%
   mutate_all(funs(as.numeric(.)))
 ```
 
-#### Remoce 0 variance columns 
+#### Remove 0 variance columns 
 
 ```{r}
 remove0var <- function(dat) {
@@ -442,14 +444,6 @@ allData <- allData %>% remove0var() %>% remove0var()
 #### Clustering Data 
 
 ```{r}
-# corData <- cor(allData %>% select(!is.character))
-# corData %>% as_tibble() %>% rownames_to_column() %>% gather(colname, value, -rowname) %>% ggplot(aes(x = rowname, y = colname, fill = value)) + geom_tile()
-
-# beforeCluster <- allData %>% select(!is.character)
-# 
-# db <- dbscan(beforeCluster %>% select(-price), eps = 50, minPts = 3)
-# db
-
 
 wss <- (nrow(allData)-1)*sum(apply(allData,2,var))
 for (i in 2:20) {
@@ -461,9 +455,16 @@ for (i in 2:20) {
 plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares") %>% ggplotly()
 
 set.seed(seed)
-kc <- kmeans(allData, centers=50)
+kc <- kmeans(allData, centers=15)
 
 beforeCluster %>% mutate(cluster = kc$cluster %>% as.factor()) -> afterCluster
+
+```
+
+
+#### Generate mean price for clusters
+
+```{r}
 
 mean_price_cluster <- afterCluster %>% 
   filter(price > -1) %>% 
@@ -477,37 +478,57 @@ pp %>% ggplotly()
 
 allData <- afterCluster %>% mutate(cluster = cluster %>% as.numeric())
 
-glimpse(allData)
-allData$place_name
 ```
 
+### Prepare for modeling
+
+#### Separate Train and Test 
 
 ```{r}
-# 
-# 
-# priceTemp <- allData %>% select(price)
-# 
-# pcaModel <- preProcess(x = allData %>% select(-price) %>% as.matrix(), method = 'pca', thresh = 0.9)
-# # pcaModel <- preProcess(x = allData %>% select(-price), method = 'pca', pcaComp = 200)
-# 
-# allData <- predict(pcaModel, newdata = allData %>% select(-price))
-# 
-# allData$price <- priceTemp
 
 trainData <- allData %>%
     select(!is.character) %>% 
-    # add_column(ID = extractID$id) %>%
-    # relocate(ID) %>%
     filter(price > -1) 
 testData <- allData %>%
     select(!is.character) %>% 
-    # add_column(ID = extractID$id) %>%
-    # relocate(ID) %>%
     filter(price == -1) %>% select(-price)
 
-### feature selection
+```
 
-boruta_output <- Boruta(price ~ ., data=trainData, pValue = 0.05, maxRuns = 500, doTrace = 2, getImp= getImpXgboost)
+#### Feature selection
+
+```{r}
+
+boruta_output <-
+  Boruta(
+    price ~ .,
+    data = trainData,
+    pValue = 0.05,
+    maxRuns = 500,
+    doTrace = 2,
+    getImp = getImpXgboost, 
+    nthread=cores,
+  )
+
+boruta_dec <- attStats(boruta_output)
+boruta_dec[boruta_dec$decision!="Rejected",]
+
+#get the names of each feature
+imp_features <- row.names(boruta_dec)[which(boruta_dec$decision!="Rejected")]
+#get feature importance history
+boruta.imp.df <- as.data.frame(xgb.brouta$ImpHistory)
+#keep only confirmed and tentative features
+boruta.imp.df <- boruta.imp.df[,names(boruta.imp.df)%in%imp_features]
+#transform the data to a data frame with two columns: feature and importance value
+boruta.imp.df <- melt(boruta.imp.df)
+#create a data frame by adding the decision for each feature as well
+boruta.imp.df <- cbind.data.frame(boruta.imp.df, 
+                               decision=boruta.df$decision[match(boruta.imp.df$variable, 
+                                                                 row.names(boruta.df))])
+#reorder features data frame by the importance median value
+feature_order <- with(boruta.imp.df, reorder(variable, value, median, order = TRUE))
+boruta.imp.df$variable <- factor(boruta.imp.df$variable, levels = levels(feature_order))
+
 selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
 
 trainData <- trainData %>% select(c(price, selectedCols))
@@ -515,6 +536,12 @@ testData <- testData %>% select(selectedCols)
 
 
 
+```
+
+
+#### Save to file (if needed)
+
+```{r}
 if (saveProcessedData) {
   
   write.csv(trainData,
@@ -524,45 +551,29 @@ if (saveProcessedData) {
             file("processedTestData.csv",encoding="UTF-8"),
             row.names = F)
 }
-
-
-
 ```
 
-```{r eval=FALSE}
-set.seed(seed)
-knnTrain <- trainData %>% head(5000)
+## Modeling 
 
-ctrl <- trainControl(
-  method = "cv",
-  number = 10,
-  verboseIter = TRUE
-)
-
-tuneGrid <- expand.grid(
-  k = seq(5, 20, by = 1)
-)
-
-modelKNN <- caret::train(
-  price ~ .,
-  data = knnTrain,
-  method = 'knn',
-  # preProcess = c("center", "scale"),
-  trControl = ctrl,
-  tuneGrid = tuneGrid, 
-  verbose = TRUE
-)
-
-modelKNN
-```
+### XGBoost
 
 ```{r}
 
+# Create training matrix 
 BoostTrainData <- xgb.DMatrix(model.matrix(price ~ ., data = trainData),
                               label = as.matrix(trainData %>% select(price)))
 
+```
+
+#### Make objective function
+
+```{r}
+# objective function for bayes hyperparameter tuning method 
 obj.fun <- makeSingleObjectiveFunction(
+  # name of the objective function
   name = "xgb_cv_bayes",
+  
+  # the xgboost function 
   fn =   function(x) {
     set.seed(seed)
     print(x)
@@ -594,6 +605,8 @@ obj.fun <- makeSingleObjectiveFunction(
     )
     cv$evaluation_log %>% pull(4) %>% min
   },
+  
+  # hyperparameters 
   par.set = makeParamSet(
     makeNumericParam("eta",                    lower = 0.005, upper = 0.36),
     makeNumericParam("gamma",                  lower = 1,     upper = 8),
@@ -606,9 +619,16 @@ obj.fun <- makeSingleObjectiveFunction(
     makeNumericParam("max_delta_step",         lower = 0,     upper = 10),
     makeNumericParam("tweedie_variance_power", lower = 1,     upper = 2)
   ),
+  
+  # objective (minimizing rmse)
   minimize = TRUE
 )
+```
 
+#### Make driver function 
+
+```{r}
+# Driver function 
 do_bayes <-
   function(n_design = NULL,
            opt_steps = NULL,
@@ -623,6 +643,7 @@ do_bayes <-
     control <-
       makeMBOControl() %>% setMBOControlTermination(., iters = opt_steps)
     
+    # modeling rmse from hyperparameters (actrual driver function)
     run <- mbo(
       fun = of,
       design = des,
@@ -636,6 +657,7 @@ do_bayes <-
       show.info = TRUE
     )
     
+    # ploting the bayes result
     opt_plot <- run$opt.path$env$path %>%
       mutate(Round = row_number()) %>%
       mutate(type = case_when(Round <= n_design ~ "Design",
@@ -645,19 +667,15 @@ do_bayes <-
       labs(title = "mlrMBO optimization") +
       ylab("-log(likelihood)")
     
-    # print(run$x)
-    
     return(list(run = run, plot = opt_plot))
   }
+```
 
-# des <- generateDesign(n=15,
-#                       par.set = getParamSet(obj.fun),
-#                       fun = lhs::randomLHS)
+#### 
 
-# kable(des, format = "html", digits = 4) %>%
-#   kable_styling(font_size = 10) %>%
-#   kable_material_dark()
+```{r}
 
+# Let's go!!! 
 runs <-
   do_bayes(
     n_design = 20,
@@ -669,19 +687,8 @@ runs <-
 plot(runs$run)
 
 best.params <- runs$run$x
-# best.params <- list(
-#         eta                    = 0.0151,
-#         max_depth              = 18,
-#         min_child_weight       = 948,
-#         gamma                  = 1.58,
-#         subsample              = 0.436,
-#         colsample_bytree       = 0.829,
-#         max_delta_step         = 8.47,
-#         tweedie_variance_power = 1.49,
-#         objective = 'reg:tweedie',
-#         eval_metric = 'rmse'
-#       )
 
+# run the model with the best hyperparamerter set
 set.seed(seed)
 optimal.cv <- xgb.cv(
   params = best.params,
@@ -698,6 +705,7 @@ optimal.cv <- xgb.cv(
   eval_metric = 'rmse'
 )
 
+# make the final model
 set.seed(seed)
 model <-
   xgboost(
@@ -706,33 +714,33 @@ model <-
     nrounds = optimal.cv$best_ntreelimit
   )
 
-
-
-
-# [mbo] 0: eta=0.0151; gamma=1.58; max_depth=18; min_child_weight=948; subsample=0.436; colsample_bytree=0.829; max_delta_step=8.47; tweedie_variance_power=1.49 : y = 47.3 : 2457.9 secs : initdesign
-
+# take a peek
 summary(model)
 
-# xgb.importance(model)
 
-pred <-
-  predict(model, model.matrix(price~., testData %>% mutate(price = -1)) %>% xgb.DMatrix())
-
-writeSubmit(pred)
 
 ```
 
+#### Write submission
+
+```{r}
+# predict 
+pred <-
+  predict(model, model.matrix(price~., testData %>% mutate(price = -1)) %>% xgb.DMatrix())
+
+# make submission csv
+writeSubmit(pred)
+```
 
 
+### ANN
+
+#### Build Net
 
 ```{r}
 
 NetTrainX <- trainData %>% select(-price) %>% as.matrix() 
 NetTrainY <- trainData %>% select(price) %>% as.matrix()
-
-rmse <- function(y, y_hat){
-  sqrt(mean((y - y_hat)^2))
-}
 
 inputSize <- dim(NetTrainX)[2] 
 offsetSize <- 0.45
@@ -765,6 +773,8 @@ model %>% compile(
 model %>% summary()
 ```
 
+#### Train Net
+
 ```{r}
 set.seed(seed)
 model %>% fit(NetTrainX, NetTrainY, epochs = 100, batch_size = 128, validation_split = 0.2,verbose = 2)
@@ -773,6 +783,7 @@ scores <- model %>% evaluate(NetTrainX, NetTrainY, verbose = 0)
 print(scores)
 ```
 
+#### Write submission
 
 ```{r}
 summary(model)
@@ -782,6 +793,7 @@ pred <- predict(model, testData %>% as.matrix())
 writeSubmit(pred)
 ```
 
+### Conclusion 
 
 ```{r}
 
