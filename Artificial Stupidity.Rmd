@@ -1,5 +1,5 @@
 ---
-title: "Artificial Stupidity"
+title: "Artificial Stupidity Predicting NYC AirBnB Rent"
 author: "Minghao Du"
 date: "`r Sys.Date()`"
 output:
@@ -11,7 +11,13 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Intro 
+
+The objective of this project is to predict Airbnb rent based on 90 features. These features include various data types, and data cleaning and pre-processing is required before modeling. The result will be evaluated with RMSE, the lower the score is the better the model predicts. 
+
 ## Initiating R Environment 
+
+The following code will initiate the R environment with required R packages and helper functions. Since the project will create an artificial neural network, TensorFlow and Keras is imported with miniconda, of which will facilitate any GPU computation that is needed for the network. Other than that, the flowing code also sets constant value for the entire project, including seed and number of cores. 
 
 ```{r echo=FALSE}
 rm(list = ls())
@@ -51,7 +57,8 @@ pkg_list <- c(
   "cluster", 
   "fpc", 
   "dbscan", 
-  "GGally")
+  "GGally", 
+  "reshape2")
 load_pkgs(pkg_list)
 
 load_helper_func()
@@ -64,7 +71,9 @@ cores <- detectCores() - 1
 
 ## Read Provided Data
 
-```{r}
+The provided data is broken down to two separate files, one for training, of which contain a price column, and a scoring data set that does not have the price column. 
+
+```{r warning=FALSE}
 writeSubmit <- function(pred) {
   submissionFile = data.frame(id = scoringData$id, price = pred)
   write.csv(submissionFile, 'submission.csv', row.names = F)
@@ -77,6 +86,8 @@ scoringData <- read_csv('./input/rentlala2021/scoringData.csv')
 ```
 
 ### Correcting column data type 
+
+By doing some column comparison, we can see that two data sets contains columns that does not match each other. Thus, some preliminary house keeping is needed to keep all columns in two data set in sync. 
 
 ```{r}
 
@@ -93,6 +104,8 @@ compare_df_cols(rawData, scoringData) %>%
 
 ### Merging scoring data and training data 
 
+The following code will create a price column for the scoring data such that two data sets can bind together as one data set for the upcoming data pre-processing and cleaning. 
+
 ```{r}
 
 pricedScoringData <- scoringData %>% mutate(price = -1)
@@ -103,10 +116,13 @@ allData <- rawData %>% bind_rows(pricedScoringData)
 
 ## Pre-Processing Data
 
+Due to the fact that most models can not handle missing data, character data, or unscaled data, it would be necessary to clean and preprocess data before moving forward. Other than that, it might be helpful to do some feature engineering such that models can have more data to work with. However, considering the fact that most models tend to run longer and perform worse with more feature added, feature selection will be needed to improve model performance and/or accuracy. 
 
 ### Grouping Columns with Same Data Type 
 
-```{r}
+Given that there are different data types in the data set, bulk processing columns with the same data type might speed up the process. The following code serves the purpose of putting columns with same data type together to help with later data cleaning. 
+
+```{r warning=FALSE}
 
 # Extract ID column 
 extractID <- allData %>% select(id)
@@ -169,7 +185,11 @@ allData[charCols] <- allData[charCols] %>% mutate_all(funs(enc2utf8(.)))
 
 ### Data Wrangling and Cleaning 
 
+Having the data in various format and type prevents us to extract information from the data. Hence, the following section will help transform some columns such that they will be easier to work with. 
+
 #### Zip code column 
+
+Given that there exists some missing zip codes in the data set, we can fill in those data point with the most common zip code in their corresponding area. 
 
 ```{r}
 mostCommonZip <- allData %>% 
@@ -189,6 +209,8 @@ allData <- allData %>% mutate(zipcode = ifelse(is.na(zipcode), getZip(neighbourh
 
 #### Rate columns 
 
+There exists some text columns that are in the percentage format. We can assume that all NA values in these columns are 0, since, in a real world scenario, it's reasonable that theses NA values are derived from dividing 0. For the rest of the data point, we can parse to numeric. 
+
 ```{r}
 
 allData[rateCols] <- allData[rateCols] %>% 
@@ -202,6 +224,8 @@ allData[rateCols] <- allData[rateCols] %>%
 ```
 
 #### Handle non-char columns NA value  
+
+The following code handles square_feet, weekly_price, and monthly_price columns' NA value. It might not be the best way, but setting these values to 0 is safe. One alternative will be using MISE imputation, but since the number of missing value is too large, it tempers the distribution of these columns. Another way that can be use is to train models that predicts these values. 
 
 ```{r}
 allData[boolCols] <- allData[boolCols] %>% replace(is.na(.),F)
@@ -219,6 +243,8 @@ allData <- allData %>% mutate(monthly_price = ifelse(is.na(monthly_price), 0, mo
 
 #### Factor columns 
 
+There exists several text columns that can be converted to factors. Some of them are only having one level, so they should be drop. On the other hand, I decided to keep columns with large amount of levels as well, but it would be wise to down size these factors and grouping low frequency factors into other. 
+
 ```{r}
 
 allData[factorCharCols] <- allData[factorCharCols] %>%
@@ -231,6 +257,8 @@ allData <- allData %>% select(-c(country_code, country, state, market))
 ```
 
 #### Host verification and amenities 
+
+For host verification and amenities columns, they are being transformed into one hot dummy columns per each unique items. This will allow models to process information in these two columns easier. The original columns are then dropped after being processed. 
 
 ```{r}
 
@@ -269,6 +297,8 @@ allData <- allData %>% select(-c(amenities, host_verifications)) %>% clean_names
 
 #### Duration columns
 
+Duration columns are messy, since they are all in text format and does not have consistent step size. Therefore after stripping all text component in these columns, a column specific step size is chosen to help rescaling the duration. 
+
 ```{r}
 allData <- allData %>%
   mutate(host_response_time = gsub("within a ", "", host_response_time)) %>%
@@ -300,6 +330,8 @@ allData <- allData %>%
 
 #### Date columns 
 
+Some models can not process date columns, so we need to transform them to numeric. Using the latest date as 0, calculate other dates' "distance" to the most resent date to get a consistent numeric transformation. 
+
 ```{r}
 
 allData[dateCols] <- allData %>% 
@@ -312,7 +344,11 @@ allData[dateCols] <- allData %>%
 
 ### Feature Engneering
 
+Having 90 columns is good, but why not more? Some models will benefit from having more features, especially meaningful features and features that were not created from other numeric features. 
+
 #### Mean price for areas 
+
+Considering that if I as a user on the platform and need to price my property, it would be helpful to know the average price in my area. The same applies to the artificial stupidity, providing an average price for each area is like helping it to cheat on a test, the result might be phenomenal. The following code adds three new columns to the data set: mean price for neighbourhood, for neighbourhood group, and for zip code. 
 
 ```{r}
 mean_price <- allData %>% 
@@ -342,6 +378,8 @@ allData[is.na(allData$price_mean_zip),]$price_mean_zip = mean(allData["price" > 
 
 #### Host Gender
 
+This new feature might be excessive, but I just can't help myself. Knowing an host's name gives the opportunity to guess their gender. Though, it might not be something that influence the price, but who knows, maybe male tends to price their property higher than female. 
+
 ```{r}
 allData %>% select(host_name) %>% c() -> names 
 
@@ -355,12 +393,10 @@ allData <- allData %>%
 
 #### Zip code coordinate
 
+Having the zip code column might not be helpful since they are all just numbers without meanings. Therefore, adding each zip code's coordinate might be something useful. In a real world scenario, it's safe to assume that properties in some areas is priced hiher than other, but it's up to the model to findout. 
+
 ```{r}
-ZipCodeSourceFile = "http://download.geonames.org/export/zip/US.zip"
-tempFile <- tempfile()
-download.file(ZipCodeSourceFile , tempFile)
-ZipCodes <- read.table(unz(tempFile, "US.txt"), sep="\t")
-unlink(tempFile)
+ZipCodes <- read.table(unz("US.zip","US.txt"), sep="\t")
 names(ZipCodes) = c("CountryCode", "zip", "PlaceName", 
 "AdminName1", "AdminCode1", "AdminName2", "AdminCode2", 
 "AdminName3", "AdminCode3", "latitude", "longitude", "accuracy") 
@@ -382,6 +418,8 @@ allData <- allData %>% mutate(PlaceName = PlaceName %>% as.factor(),
 
 #### Text mining 
 
+The fun part is that all these "useless" long text columns can also be transformed to numeric columns. The textfeatures function will generate columns like word count, url count, exclamation mark count, etc. What is even better is that it also generates sentiment analysis and LDA topic clustering analysis on these text columns. Are these columns useful? It's up to the model to find out. 
+ 
 ```{r}
 allData[longCharCols] <- allData[longCharCols] %>% replace(is.na(.), "")
 
@@ -393,6 +431,8 @@ allData <- allData %>% bind_cols(tex_feat)
 ```
 
 #### Create 2 and 3 power columns 
+
+Assuming that not all features are having leaner relationship with the price, rasing 2 and 3 power to all numeric features might help the model to fit better. 
 
 ```{r}
 copyData <- allData
@@ -411,7 +451,9 @@ allData <- allData %>% cbind( copyData %>%
 
 #### Scale columns 
 
-```{r}
+Scaling is not necessary for some models, and not all models benifits from scaled data, but here we are, why not. 
+
+```{r warning=FALSE}
 numCols <- allData %>% select(is.numeric) %>% colnames()
 facCols <- allData %>% select(is.factor) %>% colnames()
 boolCols <- allData %>% select(is.logical) %>% colnames()
@@ -429,30 +471,37 @@ allData[boolCols] <- allData[boolCols] %>%
 
 #### Remove 0 variance columns 
 
+Zero variance features are meaningless, it's wise to drop them. 
+
 ```{r}
 remove0var <- function(dat) {
     out <- lapply(dat, function(x) length(unique(x)))
     want <- which(!out > 1)
     name <- unlist(want) %>% names()
     print(name)
-    dat %>% select(-name)
+    dat %>% select(-all_of(name))
 }
 
-allData <- allData %>% remove0var() %>% remove0var() 
+allData <- allData %>% remove0var()
 ```
 
 #### Clustering Data 
 
+Considering rent price can be classified as high, medium, and low price range, let's consider would it be helpful if the model also knows if a property is in which price range? Having this in mind, clustering data might segregate data into different price range. The following code should generates 15 clusters for the data set. Due to the time limit, I just used the simplest clustering method, k-mean, and hand picked the number of cluster. However, HDBSCAN would be a better choice of clustering method in this case. (too bad it runs too long and does not support parallel processing)
+
 ```{r}
+beforeCluster <- allData 
+
+allData <- beforeCluster %>% select(!is.character)
 
 wss <- (nrow(allData)-1)*sum(apply(allData,2,var))
-for (i in 2:20) {
+for (i in 2:20) { # increase for better result 
   set.seed(seed)
-  print(i)
+  # print(i)
   clu <- kmeans(allData %>% select(-price), centers=i)
   wss[i] <- sum(clu$withinss) 
   }
-plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares") %>% ggplotly()
+plot(1:20, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares")
 
 set.seed(seed)
 kc <- kmeans(allData, centers=15)
@@ -464,6 +513,8 @@ beforeCluster %>% mutate(cluster = kc$cluster %>% as.factor()) -> afterCluster
 
 #### Generate mean price for clusters
 
+Like mean price for areas, haveing the mean price for each cluster might also help the model find the more appropreate price. 
+
 ```{r}
 
 mean_price_cluster <- afterCluster %>% 
@@ -473,6 +524,7 @@ mean_price_cluster <- afterCluster %>%
 
 afterCluster <- afterCluster %>% left_join(mean_price_cluster, by = c("cluster" = "cluster"))
 
+# plotting each cluster's price distribution 
 pp <- afterCluster %>% select(c(price, cluster)) %>% ggplot(aes(x = price, color = cluster)) + geom_density()
 pp %>% ggplotly()
 
@@ -482,7 +534,11 @@ allData <- afterCluster %>% mutate(cluster = cluster %>% as.numeric())
 
 ### Prepare for modeling
 
+After all data are being cleaned, pre-processed, and transformed, we need to prep it for modeling. 
+
 #### Separate Train and Test 
+
+Training set and testing set are separated. 
 
 ```{r}
 
@@ -497,6 +553,8 @@ testData <- allData %>%
 
 #### Feature selection
 
+To lighten the load of some models, we can perform a feature selection on our data set. Some models might even perform better with less model. The following code uses boruta algorithm, a tree based model, to calculate feature importance. 
+
 ```{r}
 
 boruta_output <-
@@ -506,35 +564,18 @@ boruta_output <-
     pValue = 0.05,
     maxRuns = 500,
     doTrace = 2,
-    getImp = getImpXgboost, 
+    getImp = getImpXgboost, # delete this line for better result, keep it for faster output
     nthread=cores,
   )
 
-boruta_dec <- attStats(boruta_output)
+boruta_dec <- attStats(boruta_output) %>% rownames_to_column()
 boruta_dec[boruta_dec$decision!="Rejected",]
-
-#get the names of each feature
-imp_features <- row.names(boruta_dec)[which(boruta_dec$decision!="Rejected")]
-#get feature importance history
-boruta.imp.df <- as.data.frame(xgb.brouta$ImpHistory)
-#keep only confirmed and tentative features
-boruta.imp.df <- boruta.imp.df[,names(boruta.imp.df)%in%imp_features]
-#transform the data to a data frame with two columns: feature and importance value
-boruta.imp.df <- melt(boruta.imp.df)
-#create a data frame by adding the decision for each feature as well
-boruta.imp.df <- cbind.data.frame(boruta.imp.df, 
-                               decision=boruta.df$decision[match(boruta.imp.df$variable, 
-                                                                 row.names(boruta.df))])
-#reorder features data frame by the importance median value
-feature_order <- with(boruta.imp.df, reorder(variable, value, median, order = TRUE))
-boruta.imp.df$variable <- factor(boruta.imp.df$variable, levels = levels(feature_order))
 
 selectedCols <- boruta_output %>% getSelectedAttributes(withTentative = TRUE)
 
+
 trainData <- trainData %>% select(c(price, selectedCols))
 testData <- testData %>% select(selectedCols)
-
-
 
 ```
 
@@ -555,7 +596,26 @@ if (saveProcessedData) {
 
 ## Modeling 
 
+This is the exciting part, we will use three models to fit our training data and see which one performs the best. 
+
+### Linear Regression 
+
+This is a baseline model, there is really nothing to see here. (the result is eye-burning)
+
+```{r}
+linear <- lm(price~., data = trainData)
+
+summary(linear)
+
+prep <- predict(linear, newdata = testData)
+
+# writeSubmit(pred)
+```
+
+
 ### XGBoost
+
+XGBoost has a great reputation on kaggle. We will see how it performs on our data set. Instead of grid search, we will be using the Bayes method to find the best hyper parameter set, as it performs faster than grid search and yield better result than randomly selecting hyper parameter values.  
 
 ```{r}
 
@@ -567,6 +627,8 @@ BoostTrainData <- xgb.DMatrix(model.matrix(price ~ ., data = trainData),
 
 #### Make objective function
 
+For the Bayes method, we need an objective function that allows the algorithm to collect data/error score on different sets of hyper parameters. Inside of this objective function, each time it runs, an XGboost with 10 fold cv will be run with selected hyper parameter set, the test error score (RMSE) will then be recorded for this specific set of hyper parameter. 
+ 
 ```{r}
 # objective function for bayes hyperparameter tuning method 
 obj.fun <- makeSingleObjectiveFunction(
@@ -579,7 +641,7 @@ obj.fun <- makeSingleObjectiveFunction(
     print(x)
     cv <- xgb.cv(
       params = list(
-        # booster          = "gbtree",
+        booster          = "gbtree",
         eta                    = x["eta"],
         max_depth              = x["max_depth"],
         min_child_weight       = x["min_child_weight"],
@@ -627,6 +689,8 @@ obj.fun <- makeSingleObjectiveFunction(
 
 #### Make driver function 
 
+The driver function for the Bayes method is mainly modeling the RMSE with tested hyper parameter sets. It then will iterate the process (run xgboost with more hyper parameter sets) to optimize the model and minimize the objective(test RMSE). Finally it will return the best performing hyper parameter set. 
+
 ```{r}
 # Driver function 
 do_bayes <-
@@ -671,16 +735,19 @@ do_bayes <-
   }
 ```
 
-#### 
+#### Run Bayes Run 
+
+Enough talking, the following code runs the Bayes method to tune the XGBoost model. After it finish tuning, the best performing hyper parameter set will be used to generate the final model for sumission. 
 
 ```{r}
 
 # Let's go!!! 
+# with 20 initial runs that will be used to create model and follow with another 5 runs to optimize the model, and lastly the best hyper parameter set will be generated (increase these numbers to yield better result)
 runs <-
   do_bayes(
-    n_design = 20,
+    n_design = 15, # 500
     of = obj.fun,
-    opt_steps = 20,
+    opt_steps = 5, # 1000
     seed = seed
   )
 
@@ -729,15 +796,17 @@ pred <-
   predict(model, model.matrix(price~., testData %>% mutate(price = -1)) %>% xgb.DMatrix())
 
 # make submission csv
-writeSubmit(pred)
+# writeSubmit(pred)
 ```
 
 
 ### ANN
 
+This is truly an artificial stupidity. (Such a shame)
+
 #### Build Net
 
-```{r}
+```{r warning=FALSE}
 
 NetTrainX <- trainData %>% select(-price) %>% as.matrix() 
 NetTrainY <- trainData %>% select(price) %>% as.matrix()
@@ -777,8 +846,15 @@ model %>% summary()
 
 ```{r}
 set.seed(seed)
-model %>% fit(NetTrainX, NetTrainY, epochs = 100, batch_size = 128, validation_split = 0.2,verbose = 2)
- 
+model %>% fit(
+  NetTrainX,
+  NetTrainY,
+  epochs = 20, # change to make it think longer
+  batch_size = 128,
+  validation_split = 0.2,
+  verbose = 2
+)
+
 scores <- model %>% evaluate(NetTrainX, NetTrainY, verbose = 0)
 print(scores)
 ```
@@ -790,14 +866,10 @@ summary(model)
 
 pred <- predict(model, testData %>% as.matrix())
 
-writeSubmit(pred)
+# writeSubmit(pred)
 ```
 
 ### Conclusion 
 
-```{r}
-
-```
-
-
+In conclusion, there are still so much room for improvement, like outlier handling, better NA value handling, or better clustering method. If time is permitted, it might be better to manually implement the essemble learning process for xgboost and mixing it with random forest (just a thought, might need years to get it done). Other than that, the current model (the one that produces best RMSE on kaggle) takes too long to run (about 3 days) and most of the time are wasted on feature selection, finding the most cluster number, and tuning XGBoost. 
 
