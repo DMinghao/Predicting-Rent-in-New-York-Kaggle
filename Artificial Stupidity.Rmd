@@ -3,8 +3,10 @@ title: "Artificial Stupidity Predicting NYC AirBnB Rent"
 author: "Minghao Du"
 date: "`r Sys.Date()`"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: 
+    latex_engine: xelatex
+always_allow_html: true
 ---
 
 ```{r setup, include=FALSE}
